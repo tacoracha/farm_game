@@ -1,0 +1,21 @@
+# ninja log v6
+6	472	7997528278956392	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-mkdir	563d985bed1094eb
+6	472	7997528278956392	C:/Users/19749/OneDrive/Desktop/cpp小组作业/farm_game/out/build/x64-Debug/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-mkdir	563d985bed1094eb
+474	8279	7997528356908754	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-download	4fa05f0e481773f1
+474	8279	7997528356908754	C:/Users/19749/OneDrive/Desktop/cpp小组作业/farm_game/out/build/x64-Debug/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-download	4fa05f0e481773f1
+8280	8607	7997528360170701	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-update	c1feeb8d3b2f9f2e
+8280	8607	7997528360170701	C:/Users/19749/OneDrive/Desktop/cpp小组作业/farm_game/out/build/x64-Debug/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-update	c1feeb8d3b2f9f2e
+8608	8982	7997528363962007	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-patch	59721172bae7ca4e
+8608	8982	7997528363962007	C:/Users/19749/OneDrive/Desktop/cpp小组作业/farm_game/out/build/x64-Debug/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-patch	59721172bae7ca4e
+8983	9457	7997528368708123	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-configure	fe3a1147f764652b
+8983	9457	7997528368708123	C:/Users/19749/OneDrive/Desktop/cpp小组作业/farm_game/out/build/x64-Debug/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-configure	fe3a1147f764652b
+9458	9813	7997528372339113	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-build	12291e55d7fc489c
+9458	9813	7997528372339113	C:/Users/19749/OneDrive/Desktop/cpp小组作业/farm_game/out/build/x64-Debug/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-build	12291e55d7fc489c
+9813	10136	7997528375500853	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-install	21e9b191d7b75ac6
+9813	10136	7997528375500853	C:/Users/19749/OneDrive/Desktop/cpp小组作业/farm_game/out/build/x64-Debug/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-install	21e9b191d7b75ac6
+10137	10465	7997528378824738	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-test	ef5f857a7af6a475
+10137	10465	7997528378824738	C:/Users/19749/OneDrive/Desktop/cpp小组作业/farm_game/out/build/x64-Debug/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-test	ef5f857a7af6a475
+10466	10911	7997528383246570	CMakeFiles/glfw-populate-complete	7040c51f227276e6
+10466	10911	7997528383246570	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-done	7040c51f227276e6
+10466	10911	7997528383246570	C:/Users/19749/OneDrive/Desktop/cpp小组作业/farm_game/out/build/x64-Debug/_deps/glfw-subbuild/CMakeFiles/glfw-populate-complete	7040c51f227276e6
+10466	10911	7997528383246570	C:/Users/19749/OneDrive/Desktop/cpp小组作业/farm_game/out/build/x64-Debug/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-done	7040c51f227276e6

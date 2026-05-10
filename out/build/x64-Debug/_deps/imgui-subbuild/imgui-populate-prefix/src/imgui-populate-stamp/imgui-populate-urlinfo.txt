@@ -1,0 +1,12 @@
+# This is a generated file and its contents are an internal implementation detail.
+# The download step will be re-executed if anything in this file changes.
+# No other meaning or use of this file is supported.
+
+method=url
+command=D:/Visual Studio2022/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;C:/Users/19749/OneDrive/Desktop/cpp小组作业/farm_game/out/build/x64-Debug/_deps/imgui-subbuild/imgui-populate-prefix/src/imgui-populate-stamp/download-imgui-populate.cmake;COMMAND;D:/Visual Studio2022/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;C:/Users/19749/OneDrive/Desktop/cpp小组作业/farm_game/out/build/x64-Debug/_deps/imgui-subbuild/imgui-populate-prefix/src/imgui-populate-stamp/verify-imgui-populate.cmake;COMMAND;D:/Visual Studio2022/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;C:/Users/19749/OneDrive/Desktop/cpp小组作业/farm_game/out/build/x64-Debug/_deps/imgui-subbuild/imgui-populate-prefix/src/imgui-populate-stamp/extract-imgui-populate.cmake
+source_dir=C:/Users/19749/OneDrive/Desktop/cpp小组作业/farm_game/out/build/x64-Debug/_deps/imgui-src
+work_dir=C:/Users/19749/OneDrive/Desktop/cpp小组作业/farm_game/out/build/x64-Debug/_deps
+url(s)=https://github.com/ocornut/imgui/archive/refs/tags/v1.91.8.zip
+hash=
+      no_extract=
+
