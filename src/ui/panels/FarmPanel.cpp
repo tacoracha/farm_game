@@ -45,11 +45,11 @@ constexpr QuickSeed kQuickSeeds[] = {
 
 void DrawFarmPanel(AppUi& app) {
     farm::Game& g = app.game();
-    const auto& plots = g.Planting().Plots();
+    const auto& plots = g.Planting().GetPlotsForDisplay();
     const int tick_now = g.CurrentTick();
 
     BeginSectionCard("farm_card", "Farm (plots)");
-    ImGui::TextUnformatted("Each plot is independent. Planting still uses the first idle plot (game rule).");
+    ImGui::TextUnformatted("Each plot is independent. Planting uses the selected plot.");
     ImGui::Spacing();
 
     const int n = static_cast<int>(plots.size());
@@ -70,16 +70,51 @@ void DrawFarmPanel(AppUi& app) {
         hdr << "Plot " << (i + 1);
         ImGui::TextUnformatted(hdr.str().c_str());
 
-        const farm::Plot& plot = plots[static_cast<std::size_t>(i)];
+        const farm::PlotView plot = plots[static_cast<std::size_t>(i)];
         ImGui::TextUnformatted(PlotStateShort(plot.state));
 
         if (plot.state == farm::PlotState::Growing) {
-            const char* crop_name = farm::ItemCatalog::Get(plot.crop).name.data();
-            const int remaining = std::max(0, plot.mature_tick - tick_now);
+            const char* crop_name = farm::ItemCatalog::Get(plot.crop_id).name.data();
+            const int remaining = std::max(0, plot.finish_tick - tick_now);
             ImGui::Text("Crop: %s", crop_name);
             ImGui::Text("Ticks left: %d", remaining);
+            ImGui::Text("Water: %s", plot.water_state == farm::PlotWaterState::Watered ? "Watered" : "Dry");
+            ImGui::Text("Fertilizer: %s", plot.fertilized ? "Used" : "No");
+
+            if (plot.water_state == farm::PlotWaterState::Watered) {
+                ImGui::BeginDisabled();
+            }
+            if (ImGui::SmallButton("Water")) {
+                auto r = g.Planting().WaterPlot(i, g.CurrentTick());
+                std::ostringstream log;
+                log << "[tick " << g.CurrentTick() << "] Water plot " << i;
+                if (!r.ok()) {
+                    log << " -> " << farm::ErrorCodeMessage(r.code);
+                }
+                app.push_log(log.str());
+            }
+            if (plot.water_state == farm::PlotWaterState::Watered) {
+                ImGui::EndDisabled();
+            }
+
+            ImGui::SameLine();
+            if (plot.fertilized || g.Player().GetItemCount(farm::ItemId::Fertilizer) <= 0) {
+                ImGui::BeginDisabled();
+            }
+            if (ImGui::SmallButton("Fertilize")) {
+                auto r = g.Planting().ApplyFertilizer(g.Player(), i, farm::ItemId::Fertilizer);
+                std::ostringstream log;
+                log << "[tick " << g.CurrentTick() << "] Fertilize plot " << i;
+                if (!r.ok()) {
+                    log << " -> " << farm::ErrorCodeMessage(r.code);
+                }
+                app.push_log(log.str());
+            }
+            if (plot.fertilized || g.Player().GetItemCount(farm::ItemId::Fertilizer) <= 0) {
+                ImGui::EndDisabled();
+            }
         } else if (plot.state == farm::PlotState::Mature) {
-            const char* crop_name = farm::ItemCatalog::Get(plot.crop).name.data();
+            const char* crop_name = farm::ItemCatalog::Get(plot.crop_id).name.data();
             ImGui::Text("Crop: %s", crop_name);
             if (ImGui::Button("Harvest")) {
                 auto r = g.Planting().TryHarvest(g.Player(), i);
@@ -98,16 +133,15 @@ void DrawFarmPanel(AppUi& app) {
                     ImGui::SameLine();
                 }
                 if (ImGui::SmallButton(qs.label)) {
-                    auto r = g.Planting().TryPlant(g.Player(), qs.id, g.CurrentTick());
+                    auto r = g.Planting().TryPlantAt(g.Player(), i, qs.id, g.CurrentTick());
                     std::ostringstream log;
-                    log << "[tick " << g.CurrentTick() << "] Plant " << qs.label << " (first idle)";
+                    log << "[tick " << g.CurrentTick() << "] Plant " << qs.label << " plot " << i;
                     if (!r.ok()) {
                         log << " -> " << farm::ErrorCodeMessage(r.code);
                     }
                     app.push_log(log.str());
                 }
             }
-            ImGui::TextDisabled("If this plot is idle but planting fails, the first idle plot may be elsewhere.");
         }
 
         ImGui::EndChild();

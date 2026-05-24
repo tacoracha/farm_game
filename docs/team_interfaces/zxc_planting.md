@@ -71,3 +71,10 @@ public:
 - `TryPlant` 可继续兼容“自动找第一个空闲地块”；指定田地播种使用 `TryPlantAt`。
 - 推荐状态流转：`Idle -> Planted/NeedsWater -> Growing -> Mature -> Idle`。
 - 施肥只允许每轮作物一次，失败时不扣肥料。
+
+## 当前实现约定
+
+- `TryPlant` 保持兼容：自动选择第一个空闲田地；需要指定田地时使用 `TryPlantAt`。
+- `WaterPlot` 每轮作物只允许一次，成功后成熟时间提前 `kWaterGrowthBoostTicks`。
+- `ApplyFertilizer` 消耗仓库中的 `ItemId::Fertilizer`，每轮作物只允许一次，成功后把剩余成长时间减半。
+- 收割后田地会重置为 `Idle`、`Dry`、未施肥状态；仓库满导致收割失败时，成熟作物保留在田地中。

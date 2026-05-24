@@ -167,6 +167,128 @@ void Test_HarvestFailsWhenWarehouseFull() {
     EXPECT_TRUE(g.Planting().Plots()[0].state == farm::PlotState::Mature);
 }
 
+void Test_PlantAtSpecificPlot() {
+    farm::Game g;
+    farm::PlayerState& p = g.Player();
+    auto r = g.Planting().TryPlantAt(p, 2, farm::ItemId::CornSeed, g.CurrentTick());
+    EXPECT_TRUE(r.ok());
+    EXPECT_TRUE(g.Planting().Plots()[0].state == farm::PlotState::Idle);
+    EXPECT_TRUE(g.Planting().Plots()[2].state == farm::PlotState::Growing);
+    EXPECT_EQ(p.GetItemCount(farm::ItemId::CornSeed), farm::kInitialCornSeedCount - 1);
+
+    const farm::PlotView view = g.Planting().GetPlot(2);
+    EXPECT_EQ(view.plot_id, 2);
+    EXPECT_EQ(view.remaining_ticks, farm::kCornGrowTicks);
+}
+
+void Test_PlantAtBusyPlotFailsNoSeedLoss() {
+    farm::Game g;
+    farm::PlayerState& p = g.Player();
+    EXPECT_TRUE(g.Planting().TryPlantAt(p, 1, farm::ItemId::WheatSeed, g.CurrentTick()).ok());
+    const int corn_before = p.GetItemCount(farm::ItemId::CornSeed);
+    auto r = g.Planting().TryPlantAt(p, 1, farm::ItemId::CornSeed, g.CurrentTick());
+    EXPECT_TRUE(!r.ok());
+    EXPECT_EQ(r.code, farm::ErrorCode::PlotNotIdle);
+    EXPECT_EQ(p.GetItemCount(farm::ItemId::CornSeed), corn_before);
+}
+
+void Test_WaterPlotSpeedsGrowthOnce() {
+    farm::Game g;
+    EXPECT_TRUE(
+        g.Planting().TryPlantAt(g.Player(), 0, farm::ItemId::CarrotSeed, g.CurrentTick()).ok());
+    EXPECT_EQ(g.Planting().GetPlot(0).remaining_ticks, farm::kCarrotGrowTicks);
+    EXPECT_TRUE(g.Planting().WaterPlot(0, g.CurrentTick()).ok());
+    EXPECT_EQ(g.Planting().GetPlot(0).water_state, farm::PlotWaterState::Watered);
+    EXPECT_EQ(g.Planting().GetPlot(0).remaining_ticks,
+              farm::kCarrotGrowTicks - farm::kWaterGrowthBoostTicks);
+
+    auto again = g.Planting().WaterPlot(0, g.CurrentTick());
+    EXPECT_TRUE(!again.ok());
+    EXPECT_EQ(again.code, farm::ErrorCode::PlotAlreadyWatered);
+
+    for (int i = 0; i < farm::kCarrotGrowTicks - farm::kWaterGrowthBoostTicks; ++i) {
+        g.AdvanceTick();
+    }
+    EXPECT_TRUE(g.Planting().Plots()[0].state == farm::PlotState::Mature);
+}
+
+void Test_FertilizerConsumesItemAndHalvesRemaining() {
+    farm::Game g;
+    farm::PlayerState& p = g.Player();
+    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Fertilizer, 2).ok());
+    EXPECT_TRUE(g.Planting().TryPlantAt(p, 0, farm::ItemId::CarrotSeed, g.CurrentTick()).ok());
+
+    const int fertilizer_before = p.GetItemCount(farm::ItemId::Fertilizer);
+    EXPECT_TRUE(g.Planting().ApplyFertilizer(p, 0, farm::ItemId::Fertilizer).ok());
+    EXPECT_EQ(p.GetItemCount(farm::ItemId::Fertilizer), fertilizer_before - 1);
+    EXPECT_TRUE(g.Planting().GetPlot(0).fertilized);
+    EXPECT_EQ(g.Planting().GetPlot(0).remaining_ticks, (farm::kCarrotGrowTicks + 1) / 2);
+
+    auto again = g.Planting().ApplyFertilizer(p, 0, farm::ItemId::Fertilizer);
+    EXPECT_TRUE(!again.ok());
+    EXPECT_EQ(again.code, farm::ErrorCode::PlotAlreadyFertilized);
+    EXPECT_EQ(p.GetItemCount(farm::ItemId::Fertilizer), fertilizer_before - 1);
+}
+
+void Test_HarvestResetsWaterAndFertilizerState() {
+    farm::Game g;
+    farm::PlayerState& p = g.Player();
+    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Fertilizer, 1).ok());
+    EXPECT_TRUE(g.Planting().TryPlantAt(p, 0, farm::ItemId::WheatSeed, g.CurrentTick()).ok());
+    EXPECT_TRUE(g.Planting().WaterPlot(0, g.CurrentTick()).ok());
+    EXPECT_TRUE(g.Planting().ApplyFertilizer(p, 0, farm::ItemId::Fertilizer).ok());
+
+    for (int i = 0; i < farm::kWheatGrowTicks; ++i) {
+        g.AdvanceTick();
+    }
+    EXPECT_TRUE(g.Planting().TryHarvest(p, 0).ok());
+    const farm::PlotView view = g.Planting().GetPlot(0);
+    EXPECT_TRUE(view.state == farm::PlotState::Idle);
+    EXPECT_EQ(view.water_state, farm::PlotWaterState::Dry);
+    EXPECT_TRUE(!view.fertilized);
+}
+
+void Test_PlantingCountsEstimateAndExpandPlot() {
+    farm::Game g;
+    farm::PlayerState& p = g.Player();
+    EXPECT_TRUE(g.Planting().TryPlantAt(p, 0, farm::ItemId::WheatSeed, g.CurrentTick()).ok());
+    EXPECT_TRUE(g.Planting().TryPlantAt(p, 1, farm::ItemId::CornSeed, g.CurrentTick()).ok());
+    for (int i = 0; i < farm::kWheatGrowTicks; ++i) {
+        g.AdvanceTick();
+    }
+    EXPECT_EQ(g.Planting().GetMatureCropCount(), 1);
+    EXPECT_EQ(g.Planting().GetGrowingCount(), 1);
+    EXPECT_TRUE(g.Planting().IsSeedUnlocked(farm::ItemId::WheatSeed));
+    EXPECT_TRUE(g.Planting().IsCropUnlocked(farm::ItemId::Wheat));
+    EXPECT_EQ(g.Planting().GetAllCropConfigs().size(), static_cast<std::size_t>(3));
+
+    const auto estimates = g.Planting().EstimateCropOutput();
+    bool saw_wheat = false;
+    bool saw_corn = false;
+    for (const farm::CropProductionEstimate& estimate : estimates) {
+        if (estimate.crop_id == farm::ItemId::Wheat) {
+            saw_wheat = true;
+            EXPECT_EQ(estimate.mature_count, 1);
+            EXPECT_TRUE(estimate.estimated_daily_output > 0);
+        }
+        if (estimate.crop_id == farm::ItemId::Corn) {
+            saw_corn = true;
+            EXPECT_EQ(estimate.growing_count, 1);
+            EXPECT_TRUE(estimate.estimated_daily_output > 0);
+        }
+    }
+    EXPECT_TRUE(saw_wheat);
+    EXPECT_TRUE(saw_corn);
+
+    const int plot_count_before = static_cast<int>(g.Planting().Plots().size());
+    const int gold_before = p.Gold();
+    auto expanded = g.Planting().ExpandPlot(p, 1);
+    EXPECT_TRUE(expanded.ok());
+    EXPECT_EQ(expanded.value, plot_count_before);
+    EXPECT_EQ(g.Planting().Plots().size(), static_cast<std::size_t>(plot_count_before + 1));
+    EXPECT_EQ(p.Gold(), gold_before - farm::kPlotExpansionBaseCost);
+}
+
 // Seed shop: buy WheatSeed success
 void Test_SeedShop_BuyWheatSuccess() {
     farm::PlayerState p;
@@ -721,6 +843,12 @@ int main() {
     Test_HarvestNotMatureFails();
     Test_HarvestSuccessToWarehouse();
     Test_HarvestFailsWhenWarehouseFull();
+    Test_PlantAtSpecificPlot();
+    Test_PlantAtBusyPlotFailsNoSeedLoss();
+    Test_WaterPlotSpeedsGrowthOnce();
+    Test_FertilizerConsumesItemAndHalvesRemaining();
+    Test_HarvestResetsWaterAndFertilizerState();
+    Test_PlantingCountsEstimateAndExpandPlot();
     Test_SeedShop_BuyWheatSuccess();
     Test_SeedShop_InsufficientGoldNoChange();
     Test_SeedShop_WarehouseFullNoChange();

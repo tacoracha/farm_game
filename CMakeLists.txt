@@ -79,6 +79,9 @@ add_executable(
 target_link_libraries(farm_game PRIVATE farm_game_lib imgui)
 if(WIN32)
     target_link_libraries(farm_game PRIVATE opengl32)
+else()
+    find_package(OpenGL REQUIRED)
+    target_link_libraries(farm_game PRIVATE OpenGL::GL)
 endif()
 
 add_executable(farm_game_demo src/demo_main.cpp src/DemoRunner.cpp)

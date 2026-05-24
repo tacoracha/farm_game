@@ -20,6 +20,10 @@ ItemMeta MakeAnimalProduct(std::string_view name, int sell_price) {
     return ItemMeta{name, false, ItemId::Wheat, 0, sell_price, 0};
 }
 
+ItemMeta MakeConsumable(std::string_view name) {
+    return ItemMeta{name, false, ItemId::Wheat, 0, 0, 0};
+}
+
 }  // namespace
 
 const ItemMeta& ItemCatalog::Get(ItemId id) {
@@ -62,6 +66,10 @@ const ItemMeta& ItemCatalog::Get(ItemId id) {
         case ItemId::Egg: {
             static const ItemMeta egg = MakeAnimalProduct("Egg", kEggSellPrice);
             return egg;
+        }
+        case ItemId::Fertilizer: {
+            static const ItemMeta fertilizer = MakeConsumable("Fertilizer");
+            return fertilizer;
         }
     }
     static const ItemMeta invalid{};
