@@ -21,6 +21,7 @@ struct Plot {
     int planted_tick = 0;
     int mature_tick = 0;
     bool fertilized = false;
+    float growth_remainder = 0.0f;
 };
 
 struct PlotView {
