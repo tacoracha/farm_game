@@ -4,6 +4,7 @@
 #include "farm/PlayerState.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace farm {
 
@@ -78,13 +79,21 @@ void PlantingSystem::OnTick(int tick_delta, float weather_growth_multiplier) {
 
     const int current_tick = last_tick_ + tick_delta;
     const float safe_multiplier = std::max(0.0f, weather_growth_multiplier);
-    const int effective_growth = static_cast<int>(static_cast<float>(tick_delta) * safe_multiplier);
-    const int bonus_growth = std::max(0, effective_growth - tick_delta);
-    if (bonus_growth > 0) {
-        for (Plot& plot : plots_) {
-            if (plot.state == PlotState::Growing) {
-                plot.mature_tick = std::max(current_tick, plot.mature_tick - bonus_growth);
-            }
+    for (Plot& plot : plots_) {
+        if (plot.state != PlotState::Growing) {
+            continue;
+        }
+
+        const float scaled_growth =
+            static_cast<float>(tick_delta) * safe_multiplier + plot.growth_remainder;
+        const int effective_growth = static_cast<int>(std::floor(scaled_growth));
+        plot.growth_remainder = scaled_growth - static_cast<float>(effective_growth);
+
+        const int growth_delta = effective_growth - tick_delta;
+        if (growth_delta > 0) {
+            plot.mature_tick = std::max(current_tick, plot.mature_tick - growth_delta);
+        } else if (growth_delta < 0) {
+            plot.mature_tick += -growth_delta;
         }
     }
 
@@ -209,6 +218,7 @@ Result<void> PlantingSystem::TryPlantAt(PlayerState& player, int plot_id, ItemId
     p.planted_tick = current_tick;
     p.mature_tick = current_tick + grow;
     p.fertilized = false;
+    p.growth_remainder = 0.0f;
     RefreshPlotViews();
     return Result<void>::success();
 }
@@ -299,6 +309,7 @@ Result<void> PlantingSystem::TryHarvest(PlayerState& player, int plot_index) {
     p.planted_tick = 0;
     p.mature_tick = 0;
     p.fertilized = false;
+    p.growth_remainder = 0.0f;
     RefreshPlotViews();
     return Result<void>::success();
 }

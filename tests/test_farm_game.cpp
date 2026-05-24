@@ -212,6 +212,22 @@ void Test_WaterPlotSpeedsGrowthOnce() {
     EXPECT_TRUE(g.Planting().Plots()[0].state == farm::PlotState::Mature);
 }
 
+void Test_OnTickWeatherMultiplierSlowsGrowth() {
+    farm::PlantingSystem planting;
+    farm::PlayerState player;
+    EXPECT_TRUE(planting.TryPlantAt(player, 0, farm::ItemId::CarrotSeed, 0).ok());
+
+    for (int i = 0; i < farm::kCarrotGrowTicks; ++i) {
+        planting.OnTick(1, 0.5f);
+    }
+    EXPECT_TRUE(planting.Plots()[0].state == farm::PlotState::Growing);
+
+    for (int i = 0; i < farm::kCarrotGrowTicks; ++i) {
+        planting.OnTick(1, 0.5f);
+    }
+    EXPECT_TRUE(planting.Plots()[0].state == farm::PlotState::Mature);
+}
+
 void Test_FertilizerConsumesItemAndHalvesRemaining() {
     farm::Game g;
     farm::PlayerState& p = g.Player();
@@ -846,6 +862,7 @@ int main() {
     Test_PlantAtSpecificPlot();
     Test_PlantAtBusyPlotFailsNoSeedLoss();
     Test_WaterPlotSpeedsGrowthOnce();
+    Test_OnTickWeatherMultiplierSlowsGrowth();
     Test_FertilizerConsumesItemAndHalvesRemaining();
     Test_HarvestResetsWaterAndFertilizerState();
     Test_PlantingCountsEstimateAndExpandPlot();
