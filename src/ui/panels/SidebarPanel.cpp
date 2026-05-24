@@ -25,6 +25,7 @@ constexpr farm::ItemId kAllItems[] = {
     farm::ItemId::WheatSeed, farm::ItemId::CornSeed, farm::ItemId::CarrotSeed,
     farm::ItemId::Wheat,    farm::ItemId::Corn,     farm::ItemId::Carrot,
     farm::ItemId::ChickenFeed, farm::ItemId::CowFeed, farm::ItemId::Egg,
+    farm::ItemId::Fertilizer,
 };
 
 void DrawWarehouseSection(AppUi& app) {

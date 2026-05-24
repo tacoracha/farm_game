@@ -7,6 +7,9 @@ PlayerState::PlayerState()
     (void)warehouse_.TryAdd(ItemId::WheatSeed, kInitialWheatSeedCount);
     (void)warehouse_.TryAdd(ItemId::CornSeed, kInitialCornSeedCount);
     (void)warehouse_.TryAdd(ItemId::CarrotSeed, kInitialCarrotSeedCount);
+    if (kInitialFertilizerCount > 0) {
+        (void)warehouse_.TryAdd(ItemId::Fertilizer, kInitialFertilizerCount);
+    }
 
     warehouse_.SetItemProtected(ItemId::WheatSeed, true);
     warehouse_.SetItemProtected(ItemId::CornSeed, true);

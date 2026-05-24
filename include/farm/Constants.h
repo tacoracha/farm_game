@@ -23,6 +23,13 @@ inline constexpr int kCarrotSeedPrice = 12;
 inline constexpr int kInitialWheatSeedCount = 3;
 inline constexpr int kInitialCornSeedCount = 2;
 inline constexpr int kInitialCarrotSeedCount = 1;
+inline constexpr int kInitialFertilizerCount = 0;
+
+inline constexpr int kWaterGrowthBoostTicks = 1;
+inline constexpr int kPlotExpansionBaseCost = 40;
+inline constexpr int kPlotExpansionCostStep = 20;
+inline constexpr int kMaxPlotCount = 9;
+inline constexpr int kTicksPerDay = 24;
 
 // Order board: fixed slots, single-item orders (crops + Egg), gold rewards only.
 // reward_gold = sell_price(item) * quantity * kOrderRewardBonusNumerator /

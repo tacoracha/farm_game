@@ -17,6 +17,7 @@ enum class ItemId : std::uint8_t {
     ChickenFeed,
     CowFeed,
     Egg,
+    Fertilizer,
 };
 
 enum class PlotState : std::uint8_t {
@@ -37,9 +38,14 @@ enum class ErrorCode : std::uint16_t {
 
     PlotNotIdle,
     PlotNotMature,
+    PlotNotGrowing,
     PlotOutOfRange,
     NoIdlePlot,
+    PlotAlreadyWatered,
+    PlotAlreadyFertilized,
     NotASeed,
+    NotFertilizer,
+    PlotExpansionLocked,
 
     ProtectedItem,
     CannotSell,
@@ -79,12 +85,22 @@ inline const char* ErrorCodeMessage(ErrorCode code) {
             return "Plot is not idle";
         case ErrorCode::PlotNotMature:
             return "Crop is not mature";
+        case ErrorCode::PlotNotGrowing:
+            return "Plot is not growing";
         case ErrorCode::PlotOutOfRange:
             return "Plot index out of range";
         case ErrorCode::NoIdlePlot:
             return "No idle plot available";
+        case ErrorCode::PlotAlreadyWatered:
+            return "Plot is already watered";
+        case ErrorCode::PlotAlreadyFertilized:
+            return "Plot is already fertilized";
         case ErrorCode::NotASeed:
             return "Item is not a seed";
+        case ErrorCode::NotFertilizer:
+            return "Item is not fertilizer";
+        case ErrorCode::PlotExpansionLocked:
+            return "Plot expansion is locked";
         case ErrorCode::ProtectedItem:
             return "Item is protected from selling";
         case ErrorCode::CannotSell:
