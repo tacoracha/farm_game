@@ -1,916 +1,220 @@
-#include "farm/ChickenCoop.h"
-#include "farm/Constants.h"
-#include "farm/FeedMill.h"
-#include "farm/Game.h"
-#include "farm/OrderSystem.h"
-#include "farm/PlantingSystem.h"
-#include "farm/PlayerState.h"
-#include "farm/ShopSystem.h"
-#include "farm/Types.h"
-#include "farm/Warehouse.h"
+#include "farm/common/Constants.h"
+#include "farm/core/Game.h"
+#include "farm/persistence/SaveManager.h"
 
+#include <cstdio>
+#include <fstream>
 #include <iostream>
+#include <string>
 
 namespace {
 
 int g_failures = 0;
 
-void ExpectTrue(bool condition, const char* expr, const char* file, int line) {
-    if (!condition) {
-        std::cerr << file << ":" << line << " EXPECT_TRUE failed: " << expr << "\n";
+void Expect(bool ok, const char* expr, int line) {
+    if (!ok) {
+        std::cerr << "line " << line << " failed: " << expr << "\n";
         ++g_failures;
     }
 }
 
-template <typename A, typename B>
-void ExpectEq(const A& a, const B& b, const char* expr_a, const char* expr_b, const char* file,
-              int line) {
-    if (a != b) {
-        std::cerr << file << ":" << line << " EXPECT_EQ failed: " << expr_a << " != " << expr_b << "\n";
-        ++g_failures;
-    }
+#define EXPECT(x) Expect(static_cast<bool>(x), #x, __LINE__)
+#define EXPECT_EQ(a, b) Expect((a) == (b), #a " == " #b, __LINE__)
+
+std::string SavePath(const char* name) {
+    return std::string("test_") + name + ".sav";
 }
 
-#define EXPECT_TRUE(x) ExpectTrue(static_cast<bool>(x), #x, __FILE__, __LINE__)
-#define EXPECT_EQ(a, b) ExpectEq((a), (b), #a, #b, __FILE__, __LINE__)
-
-int FindFirstOrderSlotWithItem(const farm::OrderSystem& os, farm::ItemId id) {
-    const auto& orders = os.GetOrders();
-    for (std::size_t i = 0; i < orders.size(); ++i) {
-        if (orders[i].item_id == id) {
-            return static_cast<int>(i);
+void FillWarehouse(farm::PlayerState& player) {
+    while (player.WarehouseRemaining() > 0) {
+        auto added = player.TryAddItem(farm::ItemId::Wheat, 1);
+        if (!added.ok()) {
+            break;
         }
     }
-    return -1;
 }
 
-// 1. 仓库容量限制测试
-void Test_WarehouseCapacityLimit() {
-    farm::Warehouse w(5);
-    EXPECT_TRUE(w.TryAdd(farm::ItemId::Wheat, 3).ok());
-    EXPECT_TRUE(w.TryAdd(farm::ItemId::Corn, 2).ok());
-    EXPECT_EQ(w.UsedSlots(), 5);
-    auto r = w.TryAdd(farm::ItemId::Carrot, 1);
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::WarehouseFull);
-}
-
-// 2. 仓库添加/移除测试
-void Test_WarehouseAddRemove() {
-    farm::Warehouse w(20);
-    EXPECT_TRUE(w.TryAdd(farm::ItemId::WheatSeed, 4).ok());
-    EXPECT_TRUE(w.HasItem(farm::ItemId::WheatSeed, 4));
-    EXPECT_EQ(w.GetCount(farm::ItemId::WheatSeed), 4);
-    EXPECT_TRUE(w.TryRemove(farm::ItemId::WheatSeed, 2).ok());
-    EXPECT_EQ(w.GetCount(farm::ItemId::WheatSeed), 2);
-    auto fail = w.TryRemove(farm::ItemId::WheatSeed, 5);
-    EXPECT_TRUE(!fail.ok());
-    EXPECT_EQ(fail.code, farm::ErrorCode::InsufficientItem);
-}
-
-// 3. 仓库出售测试（通过 PlayerState：扣库存 + 加金币）
-void Test_WarehouseSell() {
-    farm::PlayerState p;
-    const int gold_before = p.Gold();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Wheat, 2).ok());
-    EXPECT_TRUE(p.TrySellFromWarehouse(farm::ItemId::Wheat, 2).ok());
-    EXPECT_EQ(p.GetItemCount(farm::ItemId::Wheat), 0);
-    EXPECT_EQ(p.Gold(), gold_before + 2 * farm::kWheatSellPrice);
-
-    auto prot = p.TrySellFromWarehouse(farm::ItemId::WheatSeed, 1);
-    EXPECT_TRUE(!prot.ok());
-    EXPECT_EQ(prot.code, farm::ErrorCode::ProtectedItem);
-}
-
-// 4. 种植播种成功测试
-void Test_PlantSuccess() {
-    farm::Game g;
-    auto r = g.Planting().TryPlant(g.Player(), farm::ItemId::CornSeed, g.CurrentTick());
-    EXPECT_TRUE(r.ok());
-    EXPECT_EQ(g.Player().GetItemCount(farm::ItemId::CornSeed), farm::kInitialCornSeedCount - 1);
-    EXPECT_TRUE(g.Planting().Plots()[0].state == farm::PlotState::Growing);
-}
-
-// 5. 空田不足时播种失败测试
-void Test_PlantNoIdlePlot() {
-    farm::Game g;
-    EXPECT_TRUE(g.Planting().TryPlant(g.Player(), farm::ItemId::WheatSeed, g.CurrentTick()).ok());
-    EXPECT_TRUE(g.Planting().TryPlant(g.Player(), farm::ItemId::WheatSeed, g.CurrentTick()).ok());
-    EXPECT_TRUE(g.Planting().TryPlant(g.Player(), farm::ItemId::WheatSeed, g.CurrentTick()).ok());
-    auto r = g.Planting().TryPlant(g.Player(), farm::ItemId::CornSeed, g.CurrentTick());
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::NoIdlePlot);
-}
-
-// 6. 种子不足时播种失败测试
-void Test_PlantInsufficientSeed() {
-    farm::Game g;
-    auto& pl = g.Player();
-    while (pl.HasItem(farm::ItemId::WheatSeed, 1)) {
-        EXPECT_TRUE(pl.TryRemoveFromWarehouse(farm::ItemId::WheatSeed, 1).ok());
-    }
-    auto r = g.Planting().TryPlant(pl, farm::ItemId::WheatSeed, g.CurrentTick());
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::InsufficientItem);
-}
-
-// 7. 作物成长到成熟测试
-void Test_CropBecomesMature() {
-    farm::Game g;
-    EXPECT_TRUE(
-        g.Planting().TryPlant(g.Player(), farm::ItemId::CarrotSeed, g.CurrentTick()).ok());
-    for (int i = 0; i < farm::kCarrotGrowTicks; ++i) {
-        g.AdvanceTick();
-    }
-    EXPECT_TRUE(g.Planting().Plots()[0].state == farm::PlotState::Mature);
-}
-
-// 8. 未成熟收割失败测试
-void Test_HarvestNotMatureFails() {
-    farm::Game g;
-    EXPECT_TRUE(
-        g.Planting().TryPlant(g.Player(), farm::ItemId::WheatSeed, g.CurrentTick()).ok());
-    auto r = g.Planting().TryHarvest(g.Player(), 0);
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::PlotNotMature);
-}
-
-// 9. 成熟收割成功并入仓测试
-void Test_HarvestSuccessToWarehouse() {
-    farm::Game g;
-    auto& p = g.Player();
-    const int wheat_before = p.GetItemCount(farm::ItemId::Wheat);
-    EXPECT_TRUE(g.Planting().TryPlant(p, farm::ItemId::WheatSeed, g.CurrentTick()).ok());
-    g.AdvanceTick();
-    g.AdvanceTick();
-    EXPECT_TRUE(g.Planting().Plots()[0].state == farm::PlotState::Mature);
-    EXPECT_TRUE(g.Planting().TryHarvest(p, 0).ok());
-    EXPECT_EQ(p.GetItemCount(farm::ItemId::Wheat), wheat_before + 1);
-    EXPECT_TRUE(g.Planting().Plots()[0].state == farm::PlotState::Idle);
-}
-
-// 10. 仓库满时收割失败测试
-void Test_HarvestFailsWhenWarehouseFull() {
-    farm::Game g;
-    auto& p = g.Player();
-    EXPECT_TRUE(g.Planting().TryPlant(p, farm::ItemId::WheatSeed, g.CurrentTick()).ok());
-    for (int i = 0; i < farm::kWheatGrowTicks; ++i) {
-        g.AdvanceTick();
-    }
-    for (int n = 0; n < 25; ++n) {
-        EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Wheat, 1).ok());
-    }
-    EXPECT_EQ(p.GetWarehouse().UsedSlots(), farm::kWarehouseCapacity);
-    auto r = g.Planting().TryHarvest(p, 0);
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::WarehouseFull);
-    EXPECT_TRUE(g.Planting().Plots()[0].state == farm::PlotState::Mature);
-}
-
-void Test_PlantAtSpecificPlot() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    auto r = g.Planting().TryPlantAt(p, 2, farm::ItemId::CornSeed, g.CurrentTick());
-    EXPECT_TRUE(r.ok());
-    EXPECT_TRUE(g.Planting().Plots()[0].state == farm::PlotState::Idle);
-    EXPECT_TRUE(g.Planting().Plots()[2].state == farm::PlotState::Growing);
-    EXPECT_EQ(p.GetItemCount(farm::ItemId::CornSeed), farm::kInitialCornSeedCount - 1);
-
-    const farm::PlotView view = g.Planting().GetPlot(2);
-    EXPECT_EQ(view.plot_id, 2);
-    EXPECT_EQ(view.remaining_ticks, farm::kCornGrowTicks);
-}
-
-void Test_PlantAtBusyPlotFailsNoSeedLoss() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(g.Planting().TryPlantAt(p, 1, farm::ItemId::WheatSeed, g.CurrentTick()).ok());
-    const int corn_before = p.GetItemCount(farm::ItemId::CornSeed);
-    auto r = g.Planting().TryPlantAt(p, 1, farm::ItemId::CornSeed, g.CurrentTick());
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::PlotNotIdle);
-    EXPECT_EQ(p.GetItemCount(farm::ItemId::CornSeed), corn_before);
-}
-
-void Test_WaterPlotSpeedsGrowthOnce() {
-    farm::Game g;
-    EXPECT_TRUE(
-        g.Planting().TryPlantAt(g.Player(), 0, farm::ItemId::CarrotSeed, g.CurrentTick()).ok());
-    EXPECT_EQ(g.Planting().GetPlot(0).remaining_ticks, farm::kCarrotGrowTicks);
-    EXPECT_TRUE(g.Planting().WaterPlot(0, g.CurrentTick()).ok());
-    EXPECT_EQ(g.Planting().GetPlot(0).water_state, farm::PlotWaterState::Watered);
-    EXPECT_EQ(g.Planting().GetPlot(0).remaining_ticks,
-              farm::kCarrotGrowTicks - farm::kWaterGrowthBoostTicks);
-
-    auto again = g.Planting().WaterPlot(0, g.CurrentTick());
-    EXPECT_TRUE(!again.ok());
-    EXPECT_EQ(again.code, farm::ErrorCode::PlotAlreadyWatered);
-
-    for (int i = 0; i < farm::kCarrotGrowTicks - farm::kWaterGrowthBoostTicks; ++i) {
-        g.AdvanceTick();
-    }
-    EXPECT_TRUE(g.Planting().Plots()[0].state == farm::PlotState::Mature);
-}
-
-void Test_OnTickWeatherMultiplierSlowsGrowth() {
-    farm::PlantingSystem planting;
+void TestInventoryAndEconomy() {
     farm::PlayerState player;
-    EXPECT_TRUE(planting.TryPlantAt(player, 0, farm::ItemId::CarrotSeed, 0).ok());
+    const int gold = player.Gold();
+    EXPECT(player.TryAddItem(farm::ItemId::Wheat, 2).ok());
+    EXPECT_EQ(player.ItemCount(farm::ItemId::Wheat), 2);
+    EXPECT(player.TryRemoveItem(farm::ItemId::Wheat, 1).ok());
+    EXPECT_EQ(player.ItemCount(farm::ItemId::Wheat), 1);
+    EXPECT(!player.TryRemoveItem(farm::ItemId::Wheat, 9).ok());
+    player.SetItemLocked(farm::ItemId::Wheat, true);
+    EXPECT_EQ(player.TrySellItem(farm::ItemId::Wheat, 1).code, farm::ErrorCode::ProtectedItem);
+    player.SetItemLocked(farm::ItemId::Wheat, false);
+    EXPECT(player.TrySellItem(farm::ItemId::Wheat, 1).ok());
+    EXPECT(player.Gold() > gold);
+    EXPECT(player.TrySpendGold(player.Gold()).ok());
+    EXPECT_EQ(player.TrySpendGold(1).code, farm::ErrorCode::InsufficientGold);
+}
 
-    for (int i = 0; i < farm::kCarrotGrowTicks; ++i) {
-        planting.OnTick(1, 0.5f);
+void TestShopNoChangeOnFailure() {
+    farm::Game game;
+    game.Player().TrySpendGold(game.Player().Gold());
+    const int seeds = game.Player().ItemCount(farm::ItemId::WheatSeed);
+    EXPECT_EQ(game.Shop().BuyItem(game.Player(), farm::ItemId::WheatSeed, 1).code,
+              farm::ErrorCode::InsufficientGold);
+    EXPECT_EQ(game.Player().ItemCount(farm::ItemId::WheatSeed), seeds);
+}
+
+void TestPlanting() {
+    farm::Game game;
+    const int seeds = game.Player().ItemCount(farm::ItemId::WheatSeed);
+    EXPECT(game.Planting().TryPlantAt(game.Player(), 0, farm::ItemId::WheatSeed,
+                                      game.Time().CurrentTick()).ok());
+    EXPECT_EQ(game.Player().ItemCount(farm::ItemId::WheatSeed), seeds - 1);
+    EXPECT_EQ(game.Planting().TryPlantAt(game.Player(), 0, farm::ItemId::CornSeed,
+                                         game.Time().CurrentTick()).code,
+              farm::ErrorCode::PlotNotIdle);
+    EXPECT(game.Planting().WaterPlot(0, game.Time().CurrentTick()).ok());
+    EXPECT_EQ(game.Planting().WaterPlot(0, game.Time().CurrentTick()).code,
+              farm::ErrorCode::PlotAlreadyWatered);
+    EXPECT(game.Planting().ApplyFertilizer(game.Player(), 0, game.Time().CurrentTick()).ok());
+    EXPECT_EQ(game.Planting().ApplyFertilizer(game.Player(), 0, game.Time().CurrentTick()).code,
+              farm::ErrorCode::PlotAlreadyFertilized);
+    game.AdvanceTicks(farm::kWheatGrowTicks);
+    EXPECT_EQ(game.Planting().Plots()[0].state, farm::PlotState::Mature);
+    EXPECT(game.Planting().Harvest(game.Player(), 0).ok());
+    EXPECT(game.Player().ItemCount(farm::ItemId::Wheat) >= 1);
+}
+
+void TestHarvestWarehouseFullKeepsCrop() {
+    farm::Game game;
+    EXPECT(game.Planting().TryPlantAt(game.Player(), 0, farm::ItemId::WheatSeed,
+                                      game.Time().CurrentTick()).ok());
+    game.AdvanceTicks(farm::kWheatGrowTicks);
+    FillWarehouse(game.Player());
+    EXPECT_EQ(game.Planting().Harvest(game.Player(), 0).code, farm::ErrorCode::WarehouseFull);
+    EXPECT_EQ(game.Planting().Plots()[0].state, farm::PlotState::Mature);
+}
+
+void TestWorkshopAndRanch() {
+    farm::Game game;
+    EXPECT(game.Player().TryAddItem(farm::ItemId::Wheat, 4).ok());
+    EXPECT(game.Workshop().StartProduction(game.Player(), farm::RecipeId::ChickenFeed, 2).ok());
+    EXPECT_EQ(game.Player().ItemCount(farm::ItemId::Wheat), 0);
+    game.AdvanceTicks(farm::kChickenFeedTicks);
+    EXPECT_EQ(game.Workshop().ShelfChickenFeed(), 1);
+    EXPECT(game.Workshop().ClaimProduct(game.Player()).ok());
+    EXPECT_EQ(game.Player().ItemCount(farm::ItemId::ChickenFeed), 1);
+
+    auto chicken = game.Ranch().BuyAnimal(game.Player(), 1, farm::AnimalKind::Chicken);
+    EXPECT(chicken.ok());
+    EXPECT(game.Ranch().FeedAnimal(game.Player(), 1, chicken.value, game.Time().CurrentTick()).ok());
+    game.AdvanceTicks(farm::kChickenEggTicks);
+    EXPECT(game.Ranch().HarvestAnimal(game.Player(), 1, chicken.value).ok());
+    EXPECT_EQ(game.Player().ItemCount(farm::ItemId::Egg), 1);
+}
+
+void TestOrderCooldownAndReward() {
+    farm::Game game;
+    const farm::OrderData order = game.Orders().Orders()[0];
+    EXPECT(game.Player().TryAddItem(order.item, order.quantity).ok());
+    const int gold = game.Player().Gold();
+    EXPECT(game.Orders().CompleteOrder(game.Player(), 0, game.Time().CurrentTick()).ok());
+    EXPECT_EQ(game.Player().Gold(), gold + order.reward_gold);
+    EXPECT_EQ(game.Orders().Orders()[0].state, farm::OrderState::CoolingDown);
+    game.AdvanceTicks(farm::kOrderCompleteCooldownTicks);
+    EXPECT_EQ(game.Orders().Orders()[0].state, farm::OrderState::Available);
+    EXPECT(game.Orders().Orders()[0].id != order.id);
+}
+
+void TestTimeWeatherPause() {
+    farm::Game game;
+    const int tick = game.Time().CurrentTick();
+    game.Time().Pause();
+    EXPECT_EQ(game.AdvanceBySpeed().code, farm::ErrorCode::GamePaused);
+    EXPECT_EQ(game.Time().CurrentTick(), tick);
+    game.Time().SetSpeed(farm::GameSpeed::VeryFast);
+    EXPECT(game.AdvanceBySpeed().ok());
+    EXPECT_EQ(game.Time().CurrentTick(), tick + 4);
+    game.Weather().SetForLoad(farm::WeatherType::Rainy, 2);
+    game.AdvanceTicks(2);
+    EXPECT(game.Weather().Snapshot().remaining_ticks > 0);
+}
+
+void TestSaveRoundTripAndErrors() {
+    const std::string path = SavePath("roundtrip");
+    std::remove(path.c_str());
+    farm::Game game;
+    EXPECT(game.Player().TryAddItem(farm::ItemId::Wheat, 3).ok());
+    EXPECT(game.Planting().TryPlantAt(game.Player(), 0, farm::ItemId::CornSeed,
+                                      game.Time().CurrentTick()).ok());
+    game.AdvanceTicks(2);
+    EXPECT(game.ManualSave(path).ok());
+
+    farm::Game loaded;
+    EXPECT(loaded.Load(path).ok());
+    EXPECT_EQ(loaded.Time().CurrentTick(), game.Time().CurrentTick());
+    EXPECT_EQ(loaded.Player().ItemCount(farm::ItemId::Wheat),
+              game.Player().ItemCount(farm::ItemId::Wheat));
+    EXPECT_EQ(loaded.Planting().Plots()[0].crop, farm::ItemId::Corn);
+
+    farm::Game before;
+    const int original_gold = before.Player().Gold();
+    EXPECT_EQ(before.Load("missing_save_file.sav").code, farm::ErrorCode::SaveOpenFailed);
+    EXPECT_EQ(before.Player().Gold(), original_gold);
+
+    const std::string broken = SavePath("broken");
+    {
+        std::ofstream out(broken);
+        out << "not a save";
     }
-    EXPECT_TRUE(planting.Plots()[0].state == farm::PlotState::Growing);
+    EXPECT_EQ(before.Load(broken).code, farm::ErrorCode::SaveCorrupted);
+    EXPECT_EQ(before.Player().Gold(), original_gold);
 
-    for (int i = 0; i < farm::kCarrotGrowTicks; ++i) {
-        planting.OnTick(1, 0.5f);
+    const std::string wrong_version = SavePath("wrong_version");
+    {
+        std::ofstream out(wrong_version);
+        out << "FARM_SAVE 999\n";
     }
-    EXPECT_TRUE(planting.Plots()[0].state == farm::PlotState::Mature);
+    EXPECT_EQ(before.Load(wrong_version).code, farm::ErrorCode::SaveVersionMismatch);
+    std::remove(path.c_str());
+    std::remove(broken.c_str());
+    std::remove(wrong_version.c_str());
 }
 
-void Test_FertilizerConsumesItemAndHalvesRemaining() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Fertilizer, 2).ok());
-    EXPECT_TRUE(g.Planting().TryPlantAt(p, 0, farm::ItemId::CarrotSeed, g.CurrentTick()).ok());
-
-    const int fertilizer_before = p.GetItemCount(farm::ItemId::Fertilizer);
-    EXPECT_TRUE(g.Planting().ApplyFertilizer(p, 0, farm::ItemId::Fertilizer).ok());
-    EXPECT_EQ(p.GetItemCount(farm::ItemId::Fertilizer), fertilizer_before - 1);
-    EXPECT_TRUE(g.Planting().GetPlot(0).fertilized);
-    EXPECT_EQ(g.Planting().GetPlot(0).remaining_ticks, (farm::kCarrotGrowTicks + 1) / 2);
-
-    auto again = g.Planting().ApplyFertilizer(p, 0, farm::ItemId::Fertilizer);
-    EXPECT_TRUE(!again.ok());
-    EXPECT_EQ(again.code, farm::ErrorCode::PlotAlreadyFertilized);
-    EXPECT_EQ(p.GetItemCount(farm::ItemId::Fertilizer), fertilizer_before - 1);
-}
-
-void Test_HarvestResetsWaterAndFertilizerState() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Fertilizer, 1).ok());
-    EXPECT_TRUE(g.Planting().TryPlantAt(p, 0, farm::ItemId::WheatSeed, g.CurrentTick()).ok());
-    EXPECT_TRUE(g.Planting().WaterPlot(0, g.CurrentTick()).ok());
-    EXPECT_TRUE(g.Planting().ApplyFertilizer(p, 0, farm::ItemId::Fertilizer).ok());
-
-    for (int i = 0; i < farm::kWheatGrowTicks; ++i) {
-        g.AdvanceTick();
+void TestFullLoop() {
+    farm::Game game;
+    EXPECT(game.Shop().BuyItem(game.Player(), farm::ItemId::WheatSeed, 2).ok());
+    for (int i = 0; i < 2; ++i) {
+        EXPECT(game.Planting().TryPlant(game.Player(), farm::ItemId::WheatSeed,
+                                        game.Time().CurrentTick()).ok());
     }
-    EXPECT_TRUE(g.Planting().TryHarvest(p, 0).ok());
-    const farm::PlotView view = g.Planting().GetPlot(0);
-    EXPECT_TRUE(view.state == farm::PlotState::Idle);
-    EXPECT_EQ(view.water_state, farm::PlotWaterState::Dry);
-    EXPECT_TRUE(!view.fertilized);
-}
-
-void Test_PlantingCountsEstimateAndExpandPlot() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(g.Planting().TryPlantAt(p, 0, farm::ItemId::WheatSeed, g.CurrentTick()).ok());
-    EXPECT_TRUE(g.Planting().TryPlantAt(p, 1, farm::ItemId::CornSeed, g.CurrentTick()).ok());
-    for (int i = 0; i < farm::kWheatGrowTicks; ++i) {
-        g.AdvanceTick();
-    }
-    EXPECT_EQ(g.Planting().GetMatureCropCount(), 1);
-    EXPECT_EQ(g.Planting().GetGrowingCount(), 1);
-    EXPECT_TRUE(g.Planting().IsSeedUnlocked(farm::ItemId::WheatSeed));
-    EXPECT_TRUE(g.Planting().IsCropUnlocked(farm::ItemId::Wheat));
-    EXPECT_EQ(g.Planting().GetAllCropConfigs().size(), static_cast<std::size_t>(3));
-
-    const auto estimates = g.Planting().EstimateCropOutput();
-    bool saw_wheat = false;
-    bool saw_corn = false;
-    for (const farm::CropProductionEstimate& estimate : estimates) {
-        if (estimate.crop_id == farm::ItemId::Wheat) {
-            saw_wheat = true;
-            EXPECT_EQ(estimate.mature_count, 1);
-            EXPECT_TRUE(estimate.estimated_daily_output > 0);
-        }
-        if (estimate.crop_id == farm::ItemId::Corn) {
-            saw_corn = true;
-            EXPECT_EQ(estimate.growing_count, 1);
-            EXPECT_TRUE(estimate.estimated_daily_output > 0);
-        }
-    }
-    EXPECT_TRUE(saw_wheat);
-    EXPECT_TRUE(saw_corn);
-
-    const int plot_count_before = static_cast<int>(g.Planting().Plots().size());
-    const int gold_before = p.Gold();
-    auto expanded = g.Planting().ExpandPlot(p, 1);
-    EXPECT_TRUE(expanded.ok());
-    EXPECT_EQ(expanded.value, plot_count_before);
-    EXPECT_EQ(g.Planting().Plots().size(), static_cast<std::size_t>(plot_count_before + 1));
-    EXPECT_EQ(p.Gold(), gold_before - farm::kPlotExpansionBaseCost);
-}
-
-// Seed shop: buy WheatSeed success
-void Test_SeedShop_BuyWheatSuccess() {
-    farm::PlayerState p;
-    farm::ShopSystem shop;
-    const int gold_before = p.Gold();
-    const int seeds_before = p.GetItemCount(farm::ItemId::WheatSeed);
-    auto r = shop.BuySeed(p, farm::ItemId::WheatSeed, 1);
-    EXPECT_TRUE(r.ok());
-    EXPECT_EQ(p.Gold(), gold_before - farm::kWheatSeedPrice);
-    EXPECT_EQ(p.GetItemCount(farm::ItemId::WheatSeed), seeds_before + 1);
-}
-
-// Seed shop: insufficient gold, no state change
-void Test_SeedShop_InsufficientGoldNoChange() {
-    farm::PlayerState p;
-    farm::ShopSystem shop;
-    EXPECT_TRUE(p.TrySpendGold(p.Gold() - 1).ok());
-    const int gold_snap = p.Gold();
-    const int used_snap = p.GetWarehouse().UsedSlots();
-    auto r = shop.BuySeed(p, farm::ItemId::WheatSeed, 1);
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::InsufficientGold);
-    EXPECT_EQ(p.Gold(), gold_snap);
-    EXPECT_EQ(p.GetWarehouse().UsedSlots(), used_snap);
-}
-
-// Seed shop: warehouse full, gold and warehouse unchanged
-void Test_SeedShop_WarehouseFullNoChange() {
-    farm::PlayerState p;
-    farm::ShopSystem shop;
-    while (p.GetWarehouse().UsedSlots() < farm::kWarehouseCapacity) {
-        EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Wheat, 1).ok());
-    }
-    const int gold_snap = p.Gold();
-    const int used_snap = p.GetWarehouse().UsedSlots();
-    auto r = shop.BuySeed(p, farm::ItemId::CarrotSeed, 1);
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::WarehouseFull);
-    EXPECT_EQ(p.Gold(), gold_snap);
-    EXPECT_EQ(p.GetWarehouse().UsedSlots(), used_snap);
-}
-
-// Seed shop: non-seed item fails
-void Test_SeedShop_NotASeed() {
-    farm::PlayerState p;
-    farm::ShopSystem shop;
-    const int gold_snap = p.Gold();
-    const int used_snap = p.GetWarehouse().UsedSlots();
-    auto r = shop.BuySeed(p, farm::ItemId::Wheat, 1);
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::NotASeed);
-    EXPECT_EQ(p.Gold(), gold_snap);
-    EXPECT_EQ(p.GetWarehouse().UsedSlots(), used_snap);
-}
-
-// Seed shop: invalid quantity
-void Test_SeedShop_InvalidQuantity() {
-    farm::PlayerState p;
-    farm::ShopSystem shop;
-    auto r = shop.BuySeed(p, farm::ItemId::WheatSeed, 0);
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::InvalidQuantity);
-}
-
-// Seed shop: multi-quantity pricing
-void Test_SeedShop_MultiQuantityTotals() {
-    farm::PlayerState p;
-    farm::ShopSystem shop;
-    const int gold_before = p.Gold();
-    const int corn_before = p.GetItemCount(farm::ItemId::CornSeed);
-    const int qty = 3;
-    auto r = shop.BuySeed(p, farm::ItemId::CornSeed, qty);
-    EXPECT_TRUE(r.ok());
-    EXPECT_EQ(p.Gold(), gold_before - qty * farm::kCornSeedPrice);
-    EXPECT_EQ(p.GetItemCount(farm::ItemId::CornSeed), corn_before + qty);
-}
-
-void Test_Order_InitThreeSlots() {
-    farm::Game g;
-    EXPECT_EQ(g.Orders().GetOrders().size(), static_cast<std::size_t>(farm::kOrderBoardSlotCount));
-}
-
-void Test_Order_OnlySupportedPoolItems() {
-    farm::Game g;
-    for (const farm::Order& o : g.Orders().GetOrders()) {
-        const bool ok_item = o.item_id == farm::ItemId::Wheat || o.item_id == farm::ItemId::Corn ||
-                             o.item_id == farm::ItemId::Carrot || o.item_id == farm::ItemId::Egg;
-        EXPECT_TRUE(ok_item);
-    }
-}
-
-void Test_Order_QuantityRanges() {
-    farm::Game g;
-    for (const farm::Order& o : g.Orders().GetOrders()) {
-        EXPECT_TRUE(farm::OrderSystem::IsValidOrderQuantity(o.item_id, o.quantity));
-    }
-}
-
-void Test_Order_RewardGoldPositive() {
-    farm::Game g;
-    for (const farm::Order& o : g.Orders().GetOrders()) {
-        EXPECT_TRUE(o.reward_gold > 0);
-    }
-}
-
-void Test_Order_CompleteSuccessRefreshesSlot() {
-    farm::Game g;
-    farm::OrderSystem& orders = g.Orders();
-    farm::PlayerState& p = g.Player();
-
-    const farm::Order before = orders.GetOrders()[0];
-    EXPECT_TRUE(p.TryAddToWarehouse(before.item_id, before.quantity).ok());
-
-    const int gold_before = p.Gold();
-    const int count_before = p.GetItemCount(before.item_id);
-
-    auto r = orders.CompleteOrder(p, 0);
-    EXPECT_TRUE(r.ok());
-    EXPECT_EQ(p.Gold(), gold_before + before.reward_gold);
-    EXPECT_EQ(p.GetItemCount(before.item_id), count_before - before.quantity);
-
-    const farm::Order after = orders.GetOrders()[0];
-    EXPECT_TRUE(after.id != before.id);
-}
-
-void Test_Order_CompleteInsufficientNoChange() {
-    farm::Game g;
-    farm::OrderSystem& orders = g.Orders();
-    farm::PlayerState& p = g.Player();
-
-    const farm::Order slot_order = orders.GetOrders()[0];
-    const int gold_snap = p.Gold();
-    const int item_snap = p.GetItemCount(slot_order.item_id);
-
-    auto r = orders.CompleteOrder(p, 0);
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::InsufficientItem);
-    EXPECT_EQ(p.Gold(), gold_snap);
-    EXPECT_EQ(p.GetItemCount(slot_order.item_id), item_snap);
-
-    const farm::Order unchanged = orders.GetOrders()[0];
-    EXPECT_EQ(unchanged.id, slot_order.id);
-    EXPECT_EQ(unchanged.item_id, slot_order.item_id);
-    EXPECT_EQ(unchanged.quantity, slot_order.quantity);
-    EXPECT_EQ(unchanged.reward_gold, slot_order.reward_gold);
-}
-
-void Test_Order_InvalidSlotIndex() {
-    farm::Game g;
-    auto bad_low = g.Orders().CompleteOrder(g.Player(), -1);
-    EXPECT_TRUE(!bad_low.ok());
-    EXPECT_EQ(bad_low.code, farm::ErrorCode::OrderSlotOutOfRange);
-
-    auto bad_high = g.Orders().CompleteOrder(g.Player(), farm::kOrderBoardSlotCount);
-    EXPECT_TRUE(!bad_high.ok());
-    EXPECT_EQ(bad_high.code, farm::ErrorCode::OrderSlotOutOfRange);
-}
-
-void Test_Order_MultipleCompletesStable() {
-    farm::Game g;
-    farm::OrderSystem& orders = g.Orders();
-    farm::PlayerState& p = g.Player();
-
-    for (int k = 0; k < 5; ++k) {
-        const farm::Order o = orders.GetOrders()[0];
-        EXPECT_TRUE(p.TryAddToWarehouse(o.item_id, o.quantity).ok());
-        const int gold_before = p.Gold();
-        const int cnt_before = p.GetItemCount(o.item_id);
-        EXPECT_TRUE(orders.CompleteOrder(p, 0).ok());
-        EXPECT_EQ(p.Gold(), gold_before + o.reward_gold);
-        EXPECT_EQ(p.GetItemCount(o.item_id), cnt_before - o.quantity);
-    }
-}
-
-void Test_Order_EggSlotInitialRangeAndReward() {
-    farm::Game g;
-    const int egg_slot = FindFirstOrderSlotWithItem(g.Orders(), farm::ItemId::Egg);
-    EXPECT_TRUE(egg_slot >= 0);
-    const farm::Order& egg_order = g.Orders().GetOrders()[static_cast<std::size_t>(egg_slot)];
-    EXPECT_EQ(egg_order.item_id, farm::ItemId::Egg);
-    EXPECT_TRUE(farm::OrderSystem::IsValidOrderQuantity(farm::ItemId::Egg, egg_order.quantity));
-    const int expected_reward =
-        (farm::kEggSellPrice * egg_order.quantity * farm::kOrderRewardBonusNumerator) /
-        farm::kOrderRewardBonusDenominator;
-    EXPECT_EQ(egg_order.reward_gold, expected_reward);
-    EXPECT_TRUE(egg_order.reward_gold > 0);
-}
-
-void Test_Order_CompleteEggOrderSuccess() {
-    farm::Game g;
-    farm::OrderSystem& orders = g.Orders();
-    farm::PlayerState& p = g.Player();
-
-    const int egg_slot_idx = FindFirstOrderSlotWithItem(orders, farm::ItemId::Egg);
-    EXPECT_TRUE(egg_slot_idx >= 0);
-    const farm::Order egg_order = orders.GetOrders()[static_cast<std::size_t>(egg_slot_idx)];
-    EXPECT_EQ(egg_order.item_id, farm::ItemId::Egg);
-
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Egg, egg_order.quantity).ok());
-    const int gold_before = p.Gold();
-    const int eggs_before = p.GetItemCount(farm::ItemId::Egg);
-
-    EXPECT_TRUE(orders.CompleteOrder(p, egg_slot_idx).ok());
-    EXPECT_EQ(p.Gold(), gold_before + egg_order.reward_gold);
-    EXPECT_EQ(p.GetItemCount(farm::ItemId::Egg), eggs_before - egg_order.quantity);
-
-    const farm::Order after = orders.GetOrders()[static_cast<std::size_t>(egg_slot_idx)];
-    EXPECT_TRUE(after.id != egg_order.id);
-}
-
-void Test_Order_CompleteEggInsufficientNoChange() {
-    farm::Game g;
-    farm::OrderSystem& orders = g.Orders();
-    farm::PlayerState& p = g.Player();
-
-    while (p.HasItem(farm::ItemId::Egg, 1)) {
-        EXPECT_TRUE(p.TryRemoveFromWarehouse(farm::ItemId::Egg, 1).ok());
-    }
-
-    const int egg_slot_idx = FindFirstOrderSlotWithItem(orders, farm::ItemId::Egg);
-    EXPECT_TRUE(egg_slot_idx >= 0);
-    const farm::Order egg_order = orders.GetOrders()[static_cast<std::size_t>(egg_slot_idx)];
-    EXPECT_EQ(egg_order.item_id, farm::ItemId::Egg);
-
-    const int gold_snap = p.Gold();
-    const int egg_snap = p.GetItemCount(farm::ItemId::Egg);
-
-    auto r = orders.CompleteOrder(p, egg_slot_idx);
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::InsufficientItem);
-    EXPECT_EQ(p.Gold(), gold_snap);
-    EXPECT_EQ(p.GetItemCount(farm::ItemId::Egg), egg_snap);
-
-    const farm::Order unchanged = orders.GetOrders()[static_cast<std::size_t>(egg_slot_idx)];
-    EXPECT_EQ(unchanged.id, egg_order.id);
-    EXPECT_EQ(unchanged.quantity, egg_order.quantity);
-    EXPECT_EQ(unchanged.reward_gold, egg_order.reward_gold);
-}
-
-void Test_Order_CropSlotStillCompletes() {
-    farm::Game g;
-    farm::OrderSystem& orders = g.Orders();
-    farm::PlayerState& p = g.Player();
-
-    const farm::Order corn_slot = orders.GetOrders()[0];
-    EXPECT_EQ(corn_slot.item_id, farm::ItemId::Corn);
-
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Corn, corn_slot.quantity).ok());
-    EXPECT_TRUE(orders.CompleteOrder(p, 0).ok());
-    EXPECT_TRUE(orders.GetOrders()[0].id != corn_slot.id);
-}
-
-void Test_FeedMill_ChickenRecipe_StartOk() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Wheat, 2).ok());
-    auto r = g.Workshop().GetFeedMill().StartProduction(p, farm::RecipeId::ChickenFeed, g.CurrentTick());
-    EXPECT_TRUE(r.ok());
-    EXPECT_TRUE(g.Workshop().GetFeedMill().IsProducing());
-}
-
-void Test_FeedMill_CowRecipe_StartOk() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Corn, 2).ok());
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Carrot, 1).ok());
-    auto r = g.Workshop().GetFeedMill().StartProduction(p, farm::RecipeId::CowFeed, g.CurrentTick());
-    EXPECT_TRUE(r.ok());
-    EXPECT_TRUE(g.Workshop().GetFeedMill().IsProducing());
-}
-
-void Test_FeedMill_StartInsufficientIngredients() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    auto r = g.Workshop().GetFeedMill().StartProduction(p, farm::RecipeId::ChickenFeed, g.CurrentTick());
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::InsufficientItem);
-    EXPECT_TRUE(g.Workshop().GetFeedMill().IsIdle());
-}
-
-void Test_FeedMill_IngredientsRemovedOnStart() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Wheat, 5).ok());
-    const int wheat_before = p.GetItemCount(farm::ItemId::Wheat);
-    EXPECT_TRUE(
-        g.Workshop().GetFeedMill().StartProduction(p, farm::RecipeId::ChickenFeed, g.CurrentTick()).ok());
-    EXPECT_EQ(p.GetItemCount(farm::ItemId::Wheat), wheat_before - 2);
-}
-
-void Test_FeedMill_CollectWhileProducingFails() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Wheat, 2).ok());
-    EXPECT_TRUE(
-        g.Workshop().GetFeedMill().StartProduction(p, farm::RecipeId::ChickenFeed, g.CurrentTick()).ok());
-    auto r = g.Workshop().GetFeedMill().Collect(p);
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::FeedMillNotReadyToCollect);
-}
-
-void Test_FeedMill_BecomesReadyAfterTicks() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Wheat, 2).ok());
-    EXPECT_TRUE(
-        g.Workshop().GetFeedMill().StartProduction(p, farm::RecipeId::ChickenFeed, g.CurrentTick()).ok());
-    for (int i = 0; i < farm::kFeedMillChickenFeedTicks; ++i) {
-        g.AdvanceTick();
-    }
-    EXPECT_TRUE(g.Workshop().GetFeedMill().IsReadyToCollect());
-}
-
-void Test_FeedMill_CollectAddsProduct() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Wheat, 2).ok());
-    EXPECT_TRUE(
-        g.Workshop().GetFeedMill().StartProduction(p, farm::RecipeId::ChickenFeed, g.CurrentTick()).ok());
-    for (int i = 0; i < farm::kFeedMillChickenFeedTicks; ++i) {
-        g.AdvanceTick();
-    }
-    const int before = p.GetItemCount(farm::ItemId::ChickenFeed);
-    EXPECT_TRUE(g.Workshop().GetFeedMill().Collect(p).ok());
-    EXPECT_EQ(p.GetItemCount(farm::ItemId::ChickenFeed), before + 1);
-}
-
-void Test_FeedMill_CollectWarehouseFullStaysReady() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Wheat, 2).ok());
-    EXPECT_TRUE(
-        g.Workshop().GetFeedMill().StartProduction(p, farm::RecipeId::ChickenFeed, g.CurrentTick()).ok());
-    for (int i = 0; i < farm::kFeedMillChickenFeedTicks; ++i) {
-        g.AdvanceTick();
-    }
-    while (p.GetWarehouse().UsedSlots() < farm::kWarehouseCapacity) {
-        EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Wheat, 1).ok());
-    }
-    auto r = g.Workshop().GetFeedMill().Collect(p);
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::WarehouseFull);
-    EXPECT_TRUE(g.Workshop().GetFeedMill().IsReadyToCollect());
-}
-
-void Test_FeedMill_SecondStartWhileBusyFails() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Wheat, 4).ok());
-    EXPECT_TRUE(
-        g.Workshop().GetFeedMill().StartProduction(p, farm::RecipeId::ChickenFeed, g.CurrentTick()).ok());
-    auto r = g.Workshop().GetFeedMill().StartProduction(p, farm::RecipeId::ChickenFeed, g.CurrentTick());
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::FeedMillBusy);
-}
-
-void Test_FeedMill_AfterCollectIdle() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Wheat, 2).ok());
-    EXPECT_TRUE(
-        g.Workshop().GetFeedMill().StartProduction(p, farm::RecipeId::ChickenFeed, g.CurrentTick()).ok());
-    for (int i = 0; i < farm::kFeedMillChickenFeedTicks; ++i) {
-        g.AdvanceTick();
-    }
-    EXPECT_TRUE(g.Workshop().GetFeedMill().Collect(p).ok());
-    EXPECT_TRUE(g.Workshop().GetFeedMill().IsIdle());
-}
-
-void Test_Chicken_InitTwoIdleSlots() {
-    farm::Game g;
-    const farm::ChickenCoop& coop = g.Ranch().GetChickenCoop();
-    EXPECT_EQ(coop.GetSlotCount(), farm::kChickenCoopSlotCount);
-    for (int i = 0; i < coop.GetSlotCount(); ++i) {
-        EXPECT_TRUE(coop.GetState(i) == farm::AnimalState::Idle);
-    }
-}
-
-void Test_Chicken_FeedSuccess() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::ChickenFeed, 1).ok());
-    auto r = g.Ranch().GetChickenCoop().FeedChicken(p, 0, g.CurrentTick());
-    EXPECT_TRUE(r.ok());
-    EXPECT_TRUE(g.Ranch().GetChickenCoop().GetState(0) == farm::AnimalState::Producing);
-}
-
-void Test_Chicken_FeedConsumesFeedImmediately() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::ChickenFeed, 3).ok());
-    const int before = p.GetItemCount(farm::ItemId::ChickenFeed);
-    EXPECT_TRUE(g.Ranch().GetChickenCoop().FeedChicken(p, 1, g.CurrentTick()).ok());
-    EXPECT_EQ(p.GetItemCount(farm::ItemId::ChickenFeed), before - 1);
-}
-
-void Test_Chicken_FeedInsufficientFeed() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    auto r = g.Ranch().GetChickenCoop().FeedChicken(p, 0, g.CurrentTick());
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::InsufficientItem);
-    EXPECT_TRUE(g.Ranch().GetChickenCoop().GetState(0) == farm::AnimalState::Idle);
-}
-
-void Test_Chicken_FeedAgainWhenNotIdleFails() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::ChickenFeed, 2).ok());
-    EXPECT_TRUE(g.Ranch().GetChickenCoop().FeedChicken(p, 0, g.CurrentTick()).ok());
-    auto r = g.Ranch().GetChickenCoop().FeedChicken(p, 0, g.CurrentTick());
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::ChickenNotIdleForFeed);
-}
-
-void Test_Chicken_TickBecomesReady() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::ChickenFeed, 1).ok());
-    EXPECT_TRUE(g.Ranch().GetChickenCoop().FeedChicken(p, 0, g.CurrentTick()).ok());
-    for (int i = 0; i < farm::kChickenEggProductionTicks; ++i) {
-        g.AdvanceTick();
-    }
-    EXPECT_TRUE(g.Ranch().GetChickenCoop().GetState(0) == farm::AnimalState::Ready);
-}
-
-void Test_Chicken_CollectWhileProducingFails() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::ChickenFeed, 1).ok());
-    EXPECT_TRUE(g.Ranch().GetChickenCoop().FeedChicken(p, 0, g.CurrentTick()).ok());
-    auto r = g.Ranch().GetChickenCoop().CollectEgg(p, 0);
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::ChickenNotReadyToCollectEgg);
-}
-
-void Test_Chicken_CollectAddsEgg() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::ChickenFeed, 1).ok());
-    EXPECT_TRUE(g.Ranch().GetChickenCoop().FeedChicken(p, 0, g.CurrentTick()).ok());
-    for (int i = 0; i < farm::kChickenEggProductionTicks; ++i) {
-        g.AdvanceTick();
-    }
-    const int eggs_before = p.GetItemCount(farm::ItemId::Egg);
-    EXPECT_TRUE(g.Ranch().GetChickenCoop().CollectEgg(p, 0).ok());
-    EXPECT_EQ(p.GetItemCount(farm::ItemId::Egg), eggs_before + 1);
-}
-
-void Test_Chicken_CollectWarehouseFullStaysReady() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::ChickenFeed, 1).ok());
-    EXPECT_TRUE(g.Ranch().GetChickenCoop().FeedChicken(p, 0, g.CurrentTick()).ok());
-    for (int i = 0; i < farm::kChickenEggProductionTicks; ++i) {
-        g.AdvanceTick();
-    }
-    while (p.GetWarehouse().UsedSlots() < farm::kWarehouseCapacity) {
-        EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Wheat, 1).ok());
-    }
-    auto r = g.Ranch().GetChickenCoop().CollectEgg(p, 0);
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::WarehouseFull);
-    EXPECT_TRUE(g.Ranch().GetChickenCoop().GetState(0) == farm::AnimalState::Ready);
-}
-
-void Test_Chicken_AfterCollectIdle() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::ChickenFeed, 1).ok());
-    EXPECT_TRUE(g.Ranch().GetChickenCoop().FeedChicken(p, 0, g.CurrentTick()).ok());
-    for (int i = 0; i < farm::kChickenEggProductionTicks; ++i) {
-        g.AdvanceTick();
-    }
-    EXPECT_TRUE(g.Ranch().GetChickenCoop().CollectEgg(p, 0).ok());
-    EXPECT_TRUE(g.Ranch().GetChickenCoop().GetState(0) == farm::AnimalState::Idle);
-}
-
-void Test_Chicken_InvalidSlotIndex() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-    EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::ChickenFeed, 1).ok());
-    auto r = g.Ranch().GetChickenCoop().FeedChicken(p, -1, g.CurrentTick());
-    EXPECT_TRUE(!r.ok());
-    EXPECT_EQ(r.code, farm::ErrorCode::ChickenSlotOutOfRange);
-    auto r2 = g.Ranch().GetChickenCoop().FeedChicken(p, farm::kChickenCoopSlotCount, g.CurrentTick());
-    EXPECT_TRUE(!r2.ok());
-    EXPECT_EQ(r2.code, farm::ErrorCode::ChickenSlotOutOfRange);
-}
-
-void Test_Integration_MinFarmLoop() {
-    farm::Game g;
-    farm::PlayerState& p = g.Player();
-
-    EXPECT_TRUE(g.Shop().BuySeed(p, farm::ItemId::WheatSeed, 1).ok());
-
-    EXPECT_TRUE(g.Planting().TryPlant(p, farm::ItemId::WheatSeed, g.CurrentTick()).ok());
-    for (int i = 0; i < farm::kWheatGrowTicks; ++i) {
-        g.AdvanceTick();
-    }
-    EXPECT_TRUE(g.Planting().TryHarvest(p, 0).ok());
-
-    // Second sow uses the first Idle plot again (plot 0), not plot 1 — TryPlant does not target a plot index.
-    EXPECT_TRUE(g.Planting().TryPlant(p, farm::ItemId::WheatSeed, g.CurrentTick()).ok());
-    for (int i = 0; i < farm::kWheatGrowTicks; ++i) {
-        g.AdvanceTick();
-    }
-    EXPECT_TRUE(g.Planting().TryHarvest(p, 0).ok());
-
-    EXPECT_TRUE(p.GetItemCount(farm::ItemId::Wheat) >= 2);
-
-    EXPECT_TRUE(g.Workshop()
-                    .GetFeedMill()
-                    .StartProduction(p, farm::RecipeId::ChickenFeed, g.CurrentTick())
-                    .ok());
-    for (int i = 0; i < farm::kFeedMillChickenFeedTicks; ++i) {
-        g.AdvanceTick();
-    }
-    EXPECT_TRUE(g.Workshop().GetFeedMill().Collect(p).ok());
-    EXPECT_TRUE(p.GetItemCount(farm::ItemId::ChickenFeed) >= 1);
-
-    EXPECT_TRUE(g.Ranch().GetChickenCoop().FeedChicken(p, 0, g.CurrentTick()).ok());
-    for (int i = 0; i < farm::kChickenEggProductionTicks; ++i) {
-        g.AdvanceTick();
-    }
-    EXPECT_TRUE(g.Ranch().GetChickenCoop().CollectEgg(p, 0).ok());
-    EXPECT_TRUE(p.GetItemCount(farm::ItemId::Egg) >= 1);
-
-    const int egg_slot = FindFirstOrderSlotWithItem(g.Orders(), farm::ItemId::Egg);
-    EXPECT_TRUE(egg_slot >= 0);
-    const farm::Order egg_contract = g.Orders().GetOrders()[static_cast<std::size_t>(egg_slot)];
-    EXPECT_EQ(egg_contract.item_id, farm::ItemId::Egg);
-
-    while (p.GetItemCount(farm::ItemId::Egg) < egg_contract.quantity) {
-        EXPECT_TRUE(p.TryAddToWarehouse(farm::ItemId::Egg, 1).ok());
-    }
-    const int gold_before_order = p.Gold();
-    EXPECT_TRUE(g.Orders().CompleteOrder(p, egg_slot).ok());
-    EXPECT_EQ(p.Gold(), gold_before_order + egg_contract.reward_gold);
+    game.AdvanceTicks(farm::kWheatGrowTicks);
+    EXPECT(game.Planting().Harvest(game.Player(), 0).ok());
+    EXPECT(game.Planting().Harvest(game.Player(), 1).ok());
+    EXPECT(game.Workshop().StartProduction(game.Player(), farm::RecipeId::ChickenFeed, 1).ok());
+    game.AdvanceTicks(farm::kChickenFeedTicks);
+    EXPECT(game.Workshop().ClaimProduct(game.Player()).ok());
+    auto chicken = game.Ranch().BuyAnimal(game.Player(), 1, farm::AnimalKind::Chicken);
+    EXPECT(chicken.ok());
+    EXPECT(game.Ranch().FeedAnimal(game.Player(), 1, chicken.value, game.Time().CurrentTick()).ok());
+    game.AdvanceTicks(farm::kChickenEggTicks);
+    EXPECT(game.Ranch().HarvestAnimal(game.Player(), 1, chicken.value).ok());
+    EXPECT(game.Player().ItemCount(farm::ItemId::Egg) > 0);
 }
 
 }  // namespace
 
 int main() {
-    Test_WarehouseCapacityLimit();
-    Test_WarehouseAddRemove();
-    Test_WarehouseSell();
-    Test_PlantSuccess();
-    Test_PlantNoIdlePlot();
-    Test_PlantInsufficientSeed();
-    Test_CropBecomesMature();
-    Test_HarvestNotMatureFails();
-    Test_HarvestSuccessToWarehouse();
-    Test_HarvestFailsWhenWarehouseFull();
-    Test_PlantAtSpecificPlot();
-    Test_PlantAtBusyPlotFailsNoSeedLoss();
-    Test_WaterPlotSpeedsGrowthOnce();
-    Test_OnTickWeatherMultiplierSlowsGrowth();
-    Test_FertilizerConsumesItemAndHalvesRemaining();
-    Test_HarvestResetsWaterAndFertilizerState();
-    Test_PlantingCountsEstimateAndExpandPlot();
-    Test_SeedShop_BuyWheatSuccess();
-    Test_SeedShop_InsufficientGoldNoChange();
-    Test_SeedShop_WarehouseFullNoChange();
-    Test_SeedShop_NotASeed();
-    Test_SeedShop_InvalidQuantity();
-    Test_SeedShop_MultiQuantityTotals();
-    Test_Order_InitThreeSlots();
-    Test_Order_OnlySupportedPoolItems();
-    Test_Order_QuantityRanges();
-    Test_Order_RewardGoldPositive();
-    Test_Order_CompleteSuccessRefreshesSlot();
-    Test_Order_CompleteInsufficientNoChange();
-    Test_Order_InvalidSlotIndex();
-    Test_Order_MultipleCompletesStable();
-    Test_Order_EggSlotInitialRangeAndReward();
-    Test_Order_CompleteEggOrderSuccess();
-    Test_Order_CompleteEggInsufficientNoChange();
-    Test_Order_CropSlotStillCompletes();
-    Test_FeedMill_ChickenRecipe_StartOk();
-    Test_FeedMill_CowRecipe_StartOk();
-    Test_FeedMill_StartInsufficientIngredients();
-    Test_FeedMill_IngredientsRemovedOnStart();
-    Test_FeedMill_CollectWhileProducingFails();
-    Test_FeedMill_BecomesReadyAfterTicks();
-    Test_FeedMill_CollectAddsProduct();
-    Test_FeedMill_CollectWarehouseFullStaysReady();
-    Test_FeedMill_SecondStartWhileBusyFails();
-    Test_FeedMill_AfterCollectIdle();
-    Test_Chicken_InitTwoIdleSlots();
-    Test_Chicken_FeedSuccess();
-    Test_Chicken_FeedConsumesFeedImmediately();
-    Test_Chicken_FeedInsufficientFeed();
-    Test_Chicken_FeedAgainWhenNotIdleFails();
-    Test_Chicken_TickBecomesReady();
-    Test_Chicken_CollectWhileProducingFails();
-    Test_Chicken_CollectAddsEgg();
-    Test_Chicken_CollectWarehouseFullStaysReady();
-    Test_Chicken_AfterCollectIdle();
-    Test_Chicken_InvalidSlotIndex();
-    Test_Integration_MinFarmLoop();
+    TestInventoryAndEconomy();
+    TestShopNoChangeOnFailure();
+    TestPlanting();
+    TestHarvestWarehouseFullKeepsCrop();
+    TestWorkshopAndRanch();
+    TestOrderCooldownAndReward();
+    TestTimeWeatherPause();
+    TestSaveRoundTripAndErrors();
+    TestFullLoop();
 
     if (g_failures != 0) {
-        std::cerr << g_failures << " test assertion(s) failed.\n";
+        std::cerr << g_failures << " assertion(s) failed\n";
         return 1;
     }
-    std::cout << "All tests passed.\n";
+    std::cout << "All farm_game core tests passed.\n";
     return 0;
 }

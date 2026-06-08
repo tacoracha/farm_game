@@ -1,91 +1,67 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.20)
 project(farm_game LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# CMake 3.24+: silence FetchContent extract timestamp warnings for URL archives.
-if(POLICY CMP0135)
-    cmake_policy(SET CMP0135 NEW)
+include(GNUInstallDirs)
+enable_testing()
+
+add_library(farm_game_core STATIC
+    src/common/Types.cpp
+    src/core/Game.cpp
+    src/inventory/PlayerState.cpp
+    src/planting/PlantingSystem.cpp
+    src/ranch/RanchSystem.cpp
+    src/workshop/WorkshopSystem.cpp
+    src/order/OrderSystem.cpp
+    src/shop/ShopSystem.cpp
+    src/persistence/SaveManager.cpp
+)
+
+target_include_directories(farm_game_core PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+)
+
+if(MINGW)
+    target_compile_options(farm_game_core PRIVATE -Wall -Wextra -Wpedantic)
+elseif(MSVC)
+    target_compile_options(farm_game_core PRIVATE /W4)
 endif()
 
-include(FetchContent)
-
-# Prefer HTTPS ZIP downloads over GIT_REPOSITORY so Visual Studio / CI works without Git on PATH
-# and avoids ExternalProject git-clone failures behind corporate proxies.
-
-set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-    glfw
-    URL https://github.com/glfw/glfw/releases/download/3.4/glfw-3.4.zip
-)
-FetchContent_MakeAvailable(glfw)
-
-# Dear ImGui has no root CMakeLists meant for add_subdirectory; only populate sources.
-FetchContent_Declare(
-    imgui
-    URL https://github.com/ocornut/imgui/archive/refs/tags/v1.91.8.zip
-)
-FetchContent_GetProperties(imgui)
-if(NOT imgui_POPULATED)
-    FetchContent_Populate(imgui)
-endif()
-
-set(IMGUI_DIR ${imgui_SOURCE_DIR})
-
-add_library(
-    imgui STATIC
-    ${IMGUI_DIR}/imgui.cpp
-    ${IMGUI_DIR}/imgui_draw.cpp
-    ${IMGUI_DIR}/imgui_tables.cpp
-    ${IMGUI_DIR}/imgui_widgets.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
-)
-target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
-target_link_libraries(imgui PUBLIC glfw)
-
-add_library(
-    farm_game_lib STATIC
-    src/ItemCatalog.cpp
-    src/ChickenCoop.cpp
-    src/FeedMill.cpp
-    src/Warehouse.cpp
-    src/PlayerState.cpp
-    src/PlantingSystem.cpp
-    src/ShopSystem.cpp
-    src/RanchSystem.cpp
-    src/WorkshopSystem.cpp
-    src/OrderSystem.cpp
-    src/Game.cpp
-)
-target_include_directories(farm_game_lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-
-add_executable(
-    farm_game
+add_executable(farm_game
     src/main.cpp
-    src/ui/AppUi.cpp
-    src/ui/UiStyle.cpp
-    src/ui/UiWidgets.cpp
-    src/ui/panels/TopStatusBar.cpp
-    src/ui/panels/FarmPanel.cpp
-    src/ui/panels/WorkshopPanel.cpp
-    src/ui/panels/CoopPanel.cpp
-    src/ui/panels/SidebarPanel.cpp
+    src/ui/Win32FarmApp.cpp
 )
-target_link_libraries(farm_game PRIVATE farm_game_lib imgui)
+target_link_libraries(farm_game PRIVATE farm_game_core)
+
 if(WIN32)
-    target_link_libraries(farm_game PRIVATE opengl32)
-else()
-    find_package(OpenGL REQUIRED)
-    target_link_libraries(farm_game PRIVATE OpenGL::GL)
+    set_target_properties(farm_game PROPERTIES WIN32_EXECUTABLE TRUE)
+    target_compile_definitions(farm_game PRIVATE UNICODE _UNICODE NOMINMAX)
+    target_link_libraries(farm_game PRIVATE gdi32 user32 comdlg32)
 endif()
 
-add_executable(farm_game_demo src/demo_main.cpp src/DemoRunner.cpp)
-target_link_libraries(farm_game_demo PRIVATE farm_game_lib)
+add_executable(farm_game_tests
+    tests/test_farm_game.cpp
+)
+target_link_libraries(farm_game_tests PRIVATE farm_game_core)
+add_test(NAME farm_game_tests COMMAND farm_game_tests)
 
-add_executable(farm_game_tests tests/test_farm_game.cpp)
-target_link_libraries(farm_game_tests PRIVATE farm_game_lib)
+install(TARGETS farm_game RUNTIME DESTINATION .)
+install(DIRECTORY assets DESTINATION .)
+install(DIRECTORY licenses DESTINATION .)
+install(FILES README.md DESTINATION . RENAME README.txt)
+
+if(MINGW)
+    get_filename_component(FARM_GAME_MINGW_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    set(FARM_GAME_RUNTIME_DLLS)
+    foreach(_dll libgcc_s_seh-1.dll libgcc_s_dw2-1.dll libstdc++-6.dll libwinpthread-1.dll)
+        if(EXISTS "${FARM_GAME_MINGW_BIN_DIR}/${_dll}")
+            list(APPEND FARM_GAME_RUNTIME_DLLS "${FARM_GAME_MINGW_BIN_DIR}/${_dll}")
+        endif()
+    endforeach()
+    if(FARM_GAME_RUNTIME_DLLS)
+        install(FILES ${FARM_GAME_RUNTIME_DLLS} DESTINATION .)
+    endif()
+endif()
