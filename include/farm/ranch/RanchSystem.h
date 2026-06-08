@@ -26,6 +26,7 @@ struct RanchFacilityData {
 
 struct AnimalView {
     int id = 0;
+    AnimalKind kind = AnimalKind::Chicken;
     AnimalState state = AnimalState::Idle;
     int remaining_ticks = 0;
 };
@@ -49,6 +50,7 @@ public:
     std::vector<RanchFacilityView> FacilityViews() const;
     std::vector<AnimalView> AnimalViews(int facility_id, int current_tick) const;
 
+    Result<int> BuildFacility(PlayerState& player, RanchFacilityKind kind);
     Result<int> BuyAnimal(PlayerState& player, int facility_id, AnimalKind kind);
     Result<void> FeedAnimal(PlayerState& player, int facility_id, int animal_id, int current_tick);
     Result<void> HarvestAnimal(PlayerState& player, int facility_id, int animal_id);
@@ -59,6 +61,7 @@ public:
     void ClearForLoad();
     void SetFacilitiesForLoad(const std::vector<RanchFacilityData>& facilities, int next_animal_id);
     int NextAnimalIdForSave() const { return next_animal_id_; }
+    int NextFacilityIdForSave() const { return next_facility_id_; }
 
 private:
     RanchFacilityData* FindFacility(int facility_id);
@@ -68,7 +71,7 @@ private:
 
     std::vector<RanchFacilityData> facilities_;
     int next_animal_id_ = 1;
+    int next_facility_id_ = 2;
 };
 
 }  // namespace farm
-

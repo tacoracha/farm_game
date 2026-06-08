@@ -7,15 +7,20 @@
 namespace farm {
 namespace {
 
-constexpr std::array<ItemInfo, 9> kItems{{
+constexpr std::array<ItemInfo, 14> kItems{{
     {ItemId::WheatSeed, "Wheat Seed", ItemCategory::Seed, 3, 0, ItemId::Wheat, kWheatGrowTicks},
     {ItemId::CornSeed, "Corn Seed", ItemCategory::Seed, 5, 0, ItemId::Corn, kCornGrowTicks},
     {ItemId::CarrotSeed, "Carrot Seed", ItemCategory::Seed, 4, 0, ItemId::Carrot, kCarrotGrowTicks},
+    {ItemId::TomatoSeed, "Tomato Seed", ItemCategory::Seed, 7, 0, ItemId::Tomato, kTomatoGrowTicks},
     {ItemId::Wheat, "Wheat", ItemCategory::Crop, 0, 5, ItemId::Wheat, kWheatGrowTicks},
     {ItemId::Corn, "Corn", ItemCategory::Crop, 0, 8, ItemId::Corn, kCornGrowTicks},
     {ItemId::Carrot, "Carrot", ItemCategory::Crop, 0, 7, ItemId::Carrot, kCarrotGrowTicks},
+    {ItemId::Tomato, "Tomato", ItemCategory::Crop, 0, 12, ItemId::Tomato, kTomatoGrowTicks},
     {ItemId::ChickenFeed, "Chicken Feed", ItemCategory::Feed, 0, 4, ItemId::Wheat, 0},
+    {ItemId::CowFeed, "Cow Feed", ItemCategory::Feed, 0, 7, ItemId::Corn, 0},
     {ItemId::Egg, "Egg", ItemCategory::AnimalProduct, 0, 12, ItemId::Wheat, 0},
+    {ItemId::Milk, "Milk", ItemCategory::AnimalProduct, 0, 22, ItemId::Wheat, 0},
+    {ItemId::Wool, "Wool", ItemCategory::AnimalProduct, 0, 28, ItemId::Wheat, 0},
     {ItemId::Fertilizer, "Fertilizer", ItemCategory::Consumable, kFertilizerCost, 0, ItemId::Wheat, 0},
 }};
 
@@ -72,6 +77,8 @@ const char* ToString(ErrorCode code) {
             return "Item is not fertilizer";
         case ErrorCode::SeedNotUnlocked:
             return "Seed is locked";
+        case ErrorCode::ContentLocked:
+            return "Content is locked";
         case ErrorCode::PlotOutOfRange:
             return "Plot does not exist";
         case ErrorCode::PlotNotIdle:
@@ -142,4 +149,3 @@ std::vector<ItemId> AllItems() {
 }
 
 }  // namespace farm
-

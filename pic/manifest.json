@@ -1,0 +1,31 @@
+{
+  "name": "Farm Game Rich Texture Pack",
+  "version": "2.0",
+  "summary": "Expanded original texture pack with crop growth stages and future-module textures.",
+  "counts": {
+    "terrain": 11,
+    "seeds": 8,
+    "items": 20,
+    "buildings": 11,
+    "weather": 5,
+    "ui": 9,
+    "placeholders": 4,
+    "animals/chicken": 3,
+    "animals/cow": 1,
+    "animals/pig": 1,
+    "animals/sheep": 1,
+    "crops/wheat": 5,
+    "crops/corn": 5,
+    "crops/carrot": 5,
+    "crops/tomato": 5,
+    "crops/pumpkin": 5,
+    "crops/potato": 5,
+    "crops/strawberry": 5,
+    "crops/cabbage": 5
+  },
+  "notes": [
+    "All images are original generated placeholder textures/icons.",
+    "Includes crop growth stages for multiple crops.",
+    "Includes reserved textures for not-yet-implemented modules like cow barn, pig pen, sheep pen, dairy, bakery, textile."
+  ]
+}

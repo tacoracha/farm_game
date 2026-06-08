@@ -2,7 +2,7 @@
 
 负责人：zgm。
 
-职责：鸡圈、购买鸡、喂鸡、生产倒计时、收鸡蛋、容量、批量喂养和批量收获。
+职责：鸡圈、牛棚、羊圈、购买动物、喂养、生产倒计时、收获动物产品、容量、批量喂养和批量收获。
 
 主要类：`RanchSystem`。
 
@@ -16,7 +16,7 @@
 
 被依赖：`Game`、UI、存档、测试。
 
-状态流转：`Idle -> Producing -> Ready -> Idle`。
+状态流转：`Idle -> Producing -> Ready -> Idle`。鸡产鸡蛋，牛产牛奶，羊产羊毛。
 
 存档字段：`RANCH`、`FACILITY`、`ANIMAL`。
 
@@ -26,5 +26,4 @@
 
 典型流程：`BuyAnimal` -> `FeedAnimal` -> `Game::AdvanceTicks` -> `HarvestAnimal`。
 
-扩展：牛/猪/羊可复用 `AnimalKind` 和 `RanchFacilityKind`，先增加饲料和产品物品，再扩展设施匹配规则。
-
+扩展：当前已实现牛和羊的基础流程。猪仍保留在枚举中，后续可按牛/羊模式添加专属产品和饲料。

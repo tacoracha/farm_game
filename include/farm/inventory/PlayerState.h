@@ -31,6 +31,8 @@ public:
     int ItemCount(ItemId item) const;
     bool IsItemLocked(ItemId item) const;
     bool IsSeedUnlocked(ItemId seed) const;
+    bool IsUnlocked(UnlockId id) const;
+    bool CanUnlock(UnlockId id) const;
     std::vector<InventoryItemView> InventoryView() const;
 
     Result<void> TryAddItem(ItemId item, int quantity);
@@ -39,6 +41,7 @@ public:
     Result<void> TrySpendGold(int amount);
     Result<void> TrySellItem(ItemId item, int quantity);
     Result<void> UpgradeWarehouse();
+    Result<void> UnlockContent(UnlockId id);
 
     void AddGold(int amount);
     void AddExperience(int amount);
@@ -51,6 +54,8 @@ public:
     void SetWarehouseCapacityForLoad(int capacity) { warehouse_capacity_ = capacity; }
     void SetItemForLoad(ItemId item, int quantity);
     void SetSeedUnlockedForLoad(ItemId seed, bool unlocked);
+    void SetUnlockedForLoad(UnlockId id, bool unlocked);
+    const std::set<UnlockId>& UnlockedContentForSave() const { return unlocked_content_; }
 
 private:
     int gold_ = kInitialGold;
@@ -60,7 +65,7 @@ private:
     std::map<ItemId, int> items_;
     std::set<ItemId> locked_items_;
     std::set<ItemId> unlocked_seeds_;
+    std::set<UnlockId> unlocked_content_;
 };
 
 }  // namespace farm
-

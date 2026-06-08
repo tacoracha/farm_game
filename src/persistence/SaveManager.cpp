@@ -3,7 +3,9 @@
 #include "farm/common/Constants.h"
 #include "farm/core/Game.h"
 
+#include <algorithm>
 #include <cstdio>
+#include <chrono>
 #include <fstream>
 #include <sstream>
 
@@ -16,6 +18,11 @@ int StateToInt(PlotState state) { return static_cast<int>(state); }
 PlotState IntToPlotState(int value) { return static_cast<PlotState>(value); }
 int WeatherToInt(WeatherType weather) { return static_cast<int>(weather); }
 WeatherType IntToWeather(int value) { return static_cast<WeatherType>(value); }
+
+long long CurrentUnixSeconds() {
+    const auto now = std::chrono::system_clock::now();
+    return std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
+}
 
 bool ReadTag(std::istream& in, const std::string& expected) {
     std::string tag;
@@ -43,12 +50,17 @@ Result<void> SaveManager::Save(const Game& game, const std::string& path) {
     out << "TIME " << time.tick << " " << static_cast<int>(time.speed) << " "
         << game.LastAutoSaveTick() << "\n";
     out << "WEATHER " << WeatherToInt(weather.weather) << " " << weather.remaining_ticks << "\n";
+    out << "EVENT " << game.LastRandomEventTick() << "\n";
     out << "PLAYER " << game.Player().Gold() << " " << game.Player().Level() << " "
         << game.Player().Experience() << " " << game.Player().WarehouseCapacity() << "\n";
     for (ItemId item : AllItems()) {
         out << "ITEM " << ItemToInt(item) << " " << game.Player().ItemCount(item) << " "
             << (game.Player().IsItemLocked(item) ? 1 : 0) << " "
             << (game.Player().IsSeedUnlocked(item) ? 1 : 0) << "\n";
+    }
+    out << "UNLOCKS " << game.Player().UnlockedContentForSave().size() << "\n";
+    for (UnlockId id : game.Player().UnlockedContentForSave()) {
+        out << "UNLOCK " << static_cast<int>(id) << "\n";
     }
     out << "PLOTS " << game.Planting().Plots().size() << "\n";
     for (const PlotData& plot : game.Planting().Plots()) {
@@ -69,6 +81,7 @@ Result<void> SaveManager::Save(const Game& game, const std::string& path) {
         }
     }
     out << "WORKSHOP " << game.Workshop().ShelfChickenFeed() << " "
+        << game.Workshop().ShelfCowFeed() << " "
         << game.Workshop().Queue().size() << "\n";
     for (const ProductionJob& job : game.Workshop().Queue()) {
         out << "JOB " << static_cast<int>(job.recipe) << " " << job.remaining_ticks << "\n";
@@ -81,6 +94,7 @@ Result<void> SaveManager::Save(const Game& game, const std::string& path) {
             << order.reward_exp << " " << order.cooldown_until_tick << " "
             << (order.locked ? 1 : 0) << "\n";
     }
+    out << "REALTIME " << CurrentUnixSeconds() << "\n";
     out << "END\n";
     out.close();
     if (!out) {
@@ -128,6 +142,21 @@ Result<void> SaveManager::Load(const std::string& path, Game& game) {
     }
     loaded.Weather().SetForLoad(IntToWeather(weather), weather_left);
 
+    std::string tag;
+    in >> tag;
+    if (tag == "EVENT") {
+        int last_event_tick = 0;
+        if (!(in >> last_event_tick)) {
+            return Result<void>::failure(ErrorCode::SaveCorrupted);
+        }
+        loaded.SetLastRandomEventTickForLoad(last_event_tick);
+    } else {
+        in.putback('\n');
+        for (auto it = tag.rbegin(); it != tag.rend(); ++it) {
+            in.putback(*it);
+        }
+    }
+
     int gold = 0;
     int level = 1;
     int exp = 0;
@@ -153,6 +182,26 @@ Result<void> SaveManager::Load(const std::string& path, Game& game) {
         loaded.Player().SetItemLocked(IntToItem(item), locked != 0);
         if (IsSeed(IntToItem(item))) {
             loaded.Player().SetSeedUnlockedForLoad(IntToItem(item), unlocked != 0);
+        }
+    }
+
+    std::size_t unlock_count = 0;
+    in >> tag;
+    if (tag == "UNLOCKS") {
+        if (!(in >> unlock_count)) {
+            return Result<void>::failure(ErrorCode::SaveCorrupted);
+        }
+        for (std::size_t i = 0; i < unlock_count; ++i) {
+            int unlock_id = 0;
+            if (!ReadTag(in, "UNLOCK") || !(in >> unlock_id)) {
+                return Result<void>::failure(ErrorCode::SaveCorrupted);
+            }
+            loaded.Player().SetUnlockedForLoad(static_cast<UnlockId>(unlock_id), true);
+        }
+    } else {
+        in.putback('\n');
+        for (auto it = tag.rbegin(); it != tag.rend(); ++it) {
+            in.putback(*it);
         }
     }
 
@@ -214,8 +263,9 @@ Result<void> SaveManager::Load(const std::string& path, Game& game) {
     loaded.Ranch().SetFacilitiesForLoad(facilities, next_animal);
 
     int shelf = 0;
+    int cow_shelf = 0;
     std::size_t queue_count = 0;
-    if (!ReadTag(in, "WORKSHOP") || !(in >> shelf >> queue_count)) {
+    if (!ReadTag(in, "WORKSHOP") || !(in >> shelf >> cow_shelf >> queue_count)) {
         return Result<void>::failure(ErrorCode::SaveCorrupted);
     }
     std::vector<ProductionJob> queue;
@@ -228,7 +278,7 @@ Result<void> SaveManager::Load(const std::string& path, Game& game) {
         job.recipe = static_cast<RecipeId>(recipe);
         queue.push_back(job);
     }
-    loaded.Workshop().SetForLoad(queue, shelf);
+    loaded.Workshop().SetForLoad(queue, shelf, cow_shelf);
 
     int next_order = 1;
     int sequence = 0;
@@ -254,12 +304,24 @@ Result<void> SaveManager::Load(const std::string& path, Game& game) {
     }
     loaded.Orders().SetForLoad(orders, next_order, sequence);
 
-    if (!ReadTag(in, "END")) {
+    long long saved_real_time = 0;
+    in >> tag;
+    if (tag == "REALTIME") {
+        if (!(in >> saved_real_time)) {
+            return Result<void>::failure(ErrorCode::SaveCorrupted);
+        }
+        if (!ReadTag(in, "END")) {
+            return Result<void>::failure(ErrorCode::SaveCorrupted);
+        }
+    } else if (tag != "END") {
         return Result<void>::failure(ErrorCode::SaveCorrupted);
+    }
+    if (saved_real_time > 0) {
+        const long long offline_seconds = CurrentUnixSeconds() - saved_real_time;
+        loaded.ProcessOfflineSeconds(static_cast<int>(std::max(0LL, offline_seconds)));
     }
     game = loaded;
     return Result<void>::success();
 }
 
 }  // namespace farm
-

@@ -2,7 +2,7 @@
 
 负责人：zjx。
 
-职责：饲料坊配方、消耗作物、生产队列、完成货架、领取鸡饲料。
+职责：饲料坊配方、消耗作物、生产队列、完成货架、领取鸡饲料和牛饲料。
 
 主要类：`WorkshopSystem`。
 
@@ -18,6 +18,11 @@
 
 状态流转：`StartProduction -> Tick -> shelf ready -> ClaimProduct`。货架满时完成品保留在队列头，不丢失。
 
+配方：
+
+- 小麦 x2 -> 鸡饲料 x1
+- 玉米 x2 + 胡萝卜 x1 -> 牛饲料 x1
+
 存档字段：`WORKSHOP`、`JOB`。
 
 错误码：`RecipeUnavailable`、`ProductionQueueFull`、`InsufficientItem`、`ProtectedItem`、`ProductNotReady`、`WarehouseFull`。
@@ -27,4 +32,3 @@
 典型流程：收割小麦 -> `StartProduction(player, ChickenFeed, 1)` -> tick -> `ClaimProduct`。
 
 扩展：乳品坊、烘焙屋、纺织间可增加 `RecipeId` 和 `FactoryKind`，核心队列逻辑不需要改成复杂继承。
-

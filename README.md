@@ -7,9 +7,9 @@ Farm Game 是一个 C++17 农场经营课程项目。当前版本完成核心循
 ## 已实现
 
 - 主菜单、新游戏、继续游戏。
-- 唯一全局时间、暂停、1x/2x/4x、基础天气。
+- 唯一全局时间，现实 1 秒 = 游戏 2 分钟，支持暂停、1x/2x/4x、基础天气。
 - 金币、等级、经验、仓库容量、物品锁。
-- 种植、鸡圈、饲料坊、订单、商店、仓库。
+- 种植、土地购买、DAG 解锁、鸡圈、牛棚、羊圈、饲料坊、订单、商店、仓库。
 - 手动存档、自动存档、读档、损坏/版本错误检测。
 - 纯核心逻辑测试，不依赖图形窗口。
 - MinGW-w64 CMake 构建和安装发布目录。
@@ -32,7 +32,7 @@ cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ctest --test-dir build --output-on-failure
 cmake --install build --prefix dist/FarmGame
-```
+``` 
 
 运行：`dist/FarmGame/farm_game.exe`。存档默认生成在运行目录的 `saves/save01.farm`。
 
@@ -55,4 +55,3 @@ cmake --install build --prefix dist/FarmGame
 cdy 负责 `core` 和 `persistence`；zxc 负责 `planting`；zgm 负责 `ranch`；zjx 负责 `workshop`；lly 负责 `order`；gml 负责 `inventory` 和 `shop`。
 
 素材来源记录见 `assets/ATTRIBUTION.md`。更多架构、构建、存档和迁移说明见 `docs/`。
-

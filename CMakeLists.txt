@@ -11,6 +11,7 @@ enable_testing()
 add_library(farm_game_core STATIC
     src/common/Types.cpp
     src/core/Game.cpp
+    src/core/UnlockGraph.cpp
     src/inventory/PlayerState.cpp
     src/planting/PlantingSystem.cpp
     src/ranch/RanchSystem.cpp
@@ -33,13 +34,14 @@ endif()
 add_executable(farm_game
     src/main.cpp
     src/ui/Win32FarmApp.cpp
+    src/ui/TextureManager.cpp
 )
 target_link_libraries(farm_game PRIVATE farm_game_core)
 
 if(WIN32)
     set_target_properties(farm_game PROPERTIES WIN32_EXECUTABLE TRUE)
     target_compile_definitions(farm_game PRIVATE UNICODE _UNICODE NOMINMAX)
-    target_link_libraries(farm_game PRIVATE gdi32 user32 comdlg32)
+    target_link_libraries(farm_game PRIVATE gdi32 user32 comdlg32 gdiplus)
 endif()
 
 add_executable(farm_game_tests

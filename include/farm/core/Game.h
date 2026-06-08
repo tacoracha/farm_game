@@ -16,6 +16,7 @@ struct TimeSnapshot {
     int tick = 0;
     int day = 1;
     int hour = 6;
+    int minute = 0;
     GameSpeed speed = GameSpeed::Normal;
     bool paused = false;
 };
@@ -88,10 +89,17 @@ public:
     Result<void> ManualSave(const std::string& path) const;
     Result<void> Load(const std::string& path);
     Result<void> AutoSaveIfNeeded(const std::string& path);
+    int ProcessOfflineSeconds(int offline_seconds);
     int LastAutoSaveTick() const { return last_auto_save_tick_; }
     void SetLastAutoSaveTickForLoad(int tick) { last_auto_save_tick_ = tick; }
+    int LastRandomEventTick() const { return last_random_event_tick_; }
+    void SetLastRandomEventTickForLoad(int tick) { last_random_event_tick_ = tick; }
+    const std::string& LastEventMessage() const { return last_event_message_; }
+    void ClearLastEventMessage() { last_event_message_.clear(); }
 
 private:
+    void MaybeTriggerRandomEvent();
+
     TimeSystem time_;
     WeatherSystem weather_;
     PlayerState player_;
@@ -101,7 +109,8 @@ private:
     OrderSystem orders_;
     ShopSystem shop_;
     int last_auto_save_tick_ = 0;
+    int last_random_event_tick_ = 0;
+    std::string last_event_message_;
 };
 
 }  // namespace farm
-

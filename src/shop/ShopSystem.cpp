@@ -13,6 +13,8 @@ std::vector<ShopItemView> ShopSystem::Items(const PlayerState& player) const {
          player.IsSeedUnlocked(ItemId::CornSeed)},
         {ItemId::CarrotSeed, GetItemInfo(ItemId::CarrotSeed).buy_price,
          player.IsSeedUnlocked(ItemId::CarrotSeed)},
+        {ItemId::TomatoSeed, GetItemInfo(ItemId::TomatoSeed).buy_price,
+         player.IsSeedUnlocked(ItemId::TomatoSeed)},
         {ItemId::Fertilizer, kFertilizerCost, true},
     };
 }
@@ -49,4 +51,3 @@ Result<void> ShopSystem::BuyItem(PlayerState& player, ItemId item, int quantity)
 }
 
 }  // namespace farm
-

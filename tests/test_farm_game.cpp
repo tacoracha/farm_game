@@ -3,8 +3,10 @@
 #include "farm/persistence/SaveManager.h"
 
 #include <cstdio>
+#include <chrono>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 
 namespace {
@@ -66,7 +68,10 @@ void TestPlanting() {
     EXPECT(game.Planting().TryPlantAt(game.Player(), 0, farm::ItemId::WheatSeed,
                                       game.Time().CurrentTick()).ok());
     EXPECT_EQ(game.Player().ItemCount(farm::ItemId::WheatSeed), seeds - 1);
-    EXPECT_EQ(game.Planting().TryPlantAt(game.Player(), 0, farm::ItemId::CornSeed,
+    EXPECT_EQ(game.Planting().TryPlantAt(game.Player(), 1, farm::ItemId::CornSeed,
+                                         game.Time().CurrentTick()).code,
+              farm::ErrorCode::SeedNotUnlocked);
+    EXPECT_EQ(game.Planting().TryPlantAt(game.Player(), 0, farm::ItemId::WheatSeed,
                                          game.Time().CurrentTick()).code,
               farm::ErrorCode::PlotNotIdle);
     EXPECT(game.Planting().WaterPlot(0, game.Time().CurrentTick()).ok());
@@ -141,6 +146,9 @@ void TestSaveRoundTripAndErrors() {
     std::remove(path.c_str());
     farm::Game game;
     EXPECT(game.Player().TryAddItem(farm::ItemId::Wheat, 3).ok());
+    game.Player().AddExperience(farm::kExpPerLevel);
+    EXPECT(game.Player().UnlockContent(farm::UnlockId::CornSeed).ok());
+    EXPECT(game.Player().TryAddItem(farm::ItemId::CornSeed, 1).ok());
     EXPECT(game.Planting().TryPlantAt(game.Player(), 0, farm::ItemId::CornSeed,
                                       game.Time().CurrentTick()).ok());
     game.AdvanceTicks(2);
@@ -177,6 +185,69 @@ void TestSaveRoundTripAndErrors() {
     std::remove(wrong_version.c_str());
 }
 
+void TestRandomEventAndOfflineProgress() {
+    farm::Game game;
+    game.AdvanceTicks(farm::kRandomEventIntervalTicks);
+    EXPECT(!game.LastEventMessage().empty());
+    EXPECT_EQ(game.LastRandomEventTick(), farm::kRandomEventIntervalTicks);
+
+    const std::string path = SavePath("offline");
+    std::remove(path.c_str());
+    EXPECT(game.ManualSave(path).ok());
+
+    std::ifstream in(path);
+    std::stringstream buffer;
+    buffer << in.rdbuf();
+    std::string text = buffer.str();
+    const auto now = std::chrono::system_clock::now();
+    const long long old_time =
+        std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count() -
+        farm::kOfflineSecondsPerTick * 3;
+    const std::size_t pos = text.find("REALTIME ");
+    EXPECT(pos != std::string::npos);
+    const std::size_t end = text.find('\n', pos);
+    text.replace(pos, end - pos, "REALTIME " + std::to_string(old_time));
+    std::ofstream out(path, std::ios::trunc);
+    out << text;
+    out.close();
+
+    farm::Game loaded;
+    EXPECT(loaded.Load(path).ok());
+    EXPECT(loaded.Time().CurrentTick() >= game.Time().CurrentTick() + 3);
+    std::remove(path.c_str());
+}
+
+void TestUnlockDagLandAndAdvancedAnimals() {
+    farm::Game game;
+    game.Player().AddGold(1000);
+    EXPECT(!game.Player().CanUnlock(farm::UnlockId::CarrotSeed));
+    game.Player().AddExperience(farm::kExpPerLevel);
+    EXPECT(game.Player().CanUnlock(farm::UnlockId::CornSeed));
+    EXPECT(game.Player().UnlockContent(farm::UnlockId::CornSeed).ok());
+    EXPECT(game.Player().IsSeedUnlocked(farm::ItemId::CornSeed));
+    EXPECT_EQ(game.Planting().Expand(game.Player()).code, farm::ErrorCode::ContentLocked);
+    EXPECT(game.Player().UnlockContent(farm::UnlockId::ExtraLand).ok());
+    EXPECT(game.Planting().Expand(game.Player()).ok());
+
+    game.Player().AddExperience(farm::kExpPerLevel);
+    EXPECT(game.Player().UnlockContent(farm::UnlockId::CarrotSeed).ok());
+    EXPECT(game.Player().UnlockContent(farm::UnlockId::CowBarn).ok());
+    EXPECT(game.Player().UnlockContent(farm::UnlockId::Cow).ok());
+    auto barn = game.Ranch().BuildFacility(game.Player(), farm::RanchFacilityKind::CowBarn);
+    EXPECT(barn.ok());
+    auto cow = game.Ranch().BuyAnimal(game.Player(), barn.value, farm::AnimalKind::Cow);
+    EXPECT(cow.ok());
+    EXPECT(game.Player().TryAddItem(farm::ItemId::Corn, 2).ok());
+    EXPECT(game.Player().TryAddItem(farm::ItemId::Carrot, 1).ok());
+    EXPECT(game.Workshop().StartProduction(game.Player(), farm::RecipeId::CowFeed, 1).ok());
+    game.AdvanceTicks(farm::kCowFeedTicks);
+    EXPECT(game.Workshop().ClaimProduct(game.Player()).ok());
+    EXPECT(game.Ranch().FeedAnimal(game.Player(), barn.value, cow.value, game.Time().CurrentTick()).ok());
+    game.AdvanceTicks(farm::kCowMilkTicks);
+    EXPECT(game.Ranch().HarvestAnimal(game.Player(), barn.value, cow.value).ok());
+    EXPECT_EQ(game.Player().ItemCount(farm::ItemId::Milk), 1);
+}
+
 void TestFullLoop() {
     farm::Game game;
     EXPECT(game.Shop().BuyItem(game.Player(), farm::ItemId::WheatSeed, 2).ok());
@@ -209,6 +280,8 @@ int main() {
     TestOrderCooldownAndReward();
     TestTimeWeatherPause();
     TestSaveRoundTripAndErrors();
+    TestRandomEventAndOfflineProgress();
+    TestUnlockDagLandAndAdvancedAnimals();
     TestFullLoop();
 
     if (g_failures != 0) {

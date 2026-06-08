@@ -12,11 +12,16 @@ enum class ItemId : std::uint8_t {
     WheatSeed,
     CornSeed,
     CarrotSeed,
+    TomatoSeed,
     Wheat,
     Corn,
     Carrot,
+    Tomato,
     ChickenFeed,
+    CowFeed,
     Egg,
+    Milk,
+    Wool,
     Fertilizer,
 };
 
@@ -40,6 +45,7 @@ enum class ErrorCode : std::uint16_t {
     NotASeed,
     NotFertilizer,
     SeedNotUnlocked,
+    ContentLocked,
     PlotOutOfRange,
     PlotNotIdle,
     PlotNotGrowing,
@@ -170,6 +176,28 @@ enum class FactoryKind : std::uint8_t {
 
 enum class RecipeId : std::uint8_t {
     ChickenFeed,
+    CowFeed,
+};
+
+enum class UnlockId : std::uint8_t {
+    WheatSeed,
+    CornSeed,
+    CarrotSeed,
+    TomatoSeed,
+    ExtraLand,
+    ChickenCoop,
+    CowBarn,
+    SheepPen,
+    Chicken,
+    Cow,
+    Sheep,
+};
+
+enum class UnlockCategory : std::uint8_t {
+    Seed,
+    Land,
+    Ranch,
+    Animal,
 };
 
 enum class OrderState : std::uint8_t {
@@ -188,4 +216,3 @@ struct hash<farm::ItemId> {
     }
 };
 }  // namespace std
-

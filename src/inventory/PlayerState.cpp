@@ -1,20 +1,25 @@
 #include "farm/inventory/PlayerState.h"
 
+#include "farm/core/UnlockGraph.h"
+
 #include <algorithm>
 
 namespace farm {
 
 PlayerState::PlayerState() {
     items_[ItemId::WheatSeed] = kInitialWheatSeeds;
-    items_[ItemId::CornSeed] = kInitialCornSeeds;
-    items_[ItemId::CarrotSeed] = kInitialCarrotSeeds;
+    if (kInitialCornSeeds > 0) {
+        items_[ItemId::CornSeed] = kInitialCornSeeds;
+    }
+    if (kInitialCarrotSeeds > 0) {
+        items_[ItemId::CarrotSeed] = kInitialCarrotSeeds;
+    }
     items_[ItemId::Fertilizer] = kInitialFertilizer;
     locked_items_.insert(ItemId::WheatSeed);
-    locked_items_.insert(ItemId::CornSeed);
-    locked_items_.insert(ItemId::CarrotSeed);
     unlocked_seeds_.insert(ItemId::WheatSeed);
-    unlocked_seeds_.insert(ItemId::CornSeed);
-    unlocked_seeds_.insert(ItemId::CarrotSeed);
+    unlocked_content_.insert(UnlockId::WheatSeed);
+    unlocked_content_.insert(UnlockId::ChickenCoop);
+    unlocked_content_.insert(UnlockId::Chicken);
 }
 
 int PlayerState::WarehouseUsed() const {
@@ -40,7 +45,25 @@ bool PlayerState::IsItemLocked(ItemId item) const {
 }
 
 bool PlayerState::IsSeedUnlocked(ItemId seed) const {
-    return unlocked_seeds_.find(seed) != unlocked_seeds_.end();
+    return unlocked_seeds_.find(seed) != unlocked_seeds_.end() ||
+           IsUnlocked(UnlockGraph::SeedUnlock(seed));
+}
+
+bool PlayerState::IsUnlocked(UnlockId id) const {
+    return unlocked_content_.find(id) != unlocked_content_.end();
+}
+
+bool PlayerState::CanUnlock(UnlockId id) const {
+    const UnlockNode* node = UnlockGraph::Find(id);
+    if (node == nullptr || IsUnlocked(id) || level_ < node->required_level) {
+        return false;
+    }
+    for (UnlockId prerequisite : node->prerequisites) {
+        if (!IsUnlocked(prerequisite)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 std::vector<InventoryItemView> PlayerState::InventoryView() const {
@@ -135,6 +158,43 @@ Result<void> PlayerState::UpgradeWarehouse() {
     return Result<void>::success();
 }
 
+Result<void> PlayerState::UnlockContent(UnlockId id) {
+    const UnlockNode* node = UnlockGraph::Find(id);
+    if (node == nullptr) {
+        return Result<void>::failure(ErrorCode::InvalidItem);
+    }
+    if (IsUnlocked(id)) {
+        return Result<void>::success();
+    }
+    if (!CanUnlock(id)) {
+        return Result<void>::failure(ErrorCode::ContentLocked);
+    }
+    auto spent = TrySpendGold(node->gold_cost);
+    if (!spent.ok()) {
+        return spent;
+    }
+    unlocked_content_.insert(id);
+    if (node->category == UnlockCategory::Seed) {
+        switch (id) {
+            case UnlockId::WheatSeed:
+                unlocked_seeds_.insert(ItemId::WheatSeed);
+                break;
+            case UnlockId::CornSeed:
+                unlocked_seeds_.insert(ItemId::CornSeed);
+                break;
+            case UnlockId::CarrotSeed:
+                unlocked_seeds_.insert(ItemId::CarrotSeed);
+                break;
+            case UnlockId::TomatoSeed:
+                unlocked_seeds_.insert(ItemId::TomatoSeed);
+                break;
+            default:
+                break;
+        }
+    }
+    return Result<void>::success();
+}
+
 void PlayerState::AddGold(int amount) {
     if (amount > 0) {
         gold_ += amount;
@@ -168,6 +228,7 @@ void PlayerState::ClearForLoad() {
     items_.clear();
     locked_items_.clear();
     unlocked_seeds_.clear();
+    unlocked_content_.clear();
 }
 
 void PlayerState::SetItemForLoad(ItemId item, int quantity) {
@@ -186,5 +247,31 @@ void PlayerState::SetSeedUnlockedForLoad(ItemId seed, bool unlocked) {
     }
 }
 
-}  // namespace farm
+void PlayerState::SetUnlockedForLoad(UnlockId id, bool unlocked) {
+    if (unlocked) {
+        unlocked_content_.insert(id);
+        const UnlockNode* node = UnlockGraph::Find(id);
+        if (node != nullptr && node->category == UnlockCategory::Seed) {
+            switch (id) {
+                case UnlockId::WheatSeed:
+                    unlocked_seeds_.insert(ItemId::WheatSeed);
+                    break;
+                case UnlockId::CornSeed:
+                    unlocked_seeds_.insert(ItemId::CornSeed);
+                    break;
+                case UnlockId::CarrotSeed:
+                    unlocked_seeds_.insert(ItemId::CarrotSeed);
+                    break;
+                case UnlockId::TomatoSeed:
+                    unlocked_seeds_.insert(ItemId::TomatoSeed);
+                    break;
+                default:
+                    break;
+            }
+        }
+    } else {
+        unlocked_content_.erase(id);
+    }
+}
 
+}  // namespace farm

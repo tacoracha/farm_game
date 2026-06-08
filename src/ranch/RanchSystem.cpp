@@ -1,6 +1,7 @@
 #include "farm/ranch/RanchSystem.h"
 
 #include "farm/common/Constants.h"
+#include "farm/core/UnlockGraph.h"
 #include "farm/inventory/PlayerState.h"
 
 #include <algorithm>
@@ -15,6 +16,80 @@ RanchSystem::RanchSystem() {
     coop.capacity = kChickenCoopBaseCapacity;
     facilities_.push_back(coop);
 }
+
+namespace {
+
+bool FacilityMatches(RanchFacilityKind facility, AnimalKind animal) {
+    return (facility == RanchFacilityKind::ChickenCoop && animal == AnimalKind::Chicken) ||
+           (facility == RanchFacilityKind::CowBarn && animal == AnimalKind::Cow) ||
+           (facility == RanchFacilityKind::SheepPen && animal == AnimalKind::Sheep);
+}
+
+int FacilityCapacity(RanchFacilityKind kind) {
+    return kind == RanchFacilityKind::ChickenCoop ? kChickenCoopBaseCapacity : kBarnBaseCapacity;
+}
+
+int FacilityBuildCost(RanchFacilityKind kind) {
+    switch (kind) {
+        case RanchFacilityKind::ChickenCoop:
+            return 0;
+        case RanchFacilityKind::CowBarn:
+            return 120;
+        case RanchFacilityKind::SheepPen:
+            return 160;
+        case RanchFacilityKind::PigPen:
+            return 160;
+    }
+    return 0;
+}
+
+int AnimalCost(AnimalKind kind) {
+    switch (kind) {
+        case AnimalKind::Chicken:
+            return kChickenCost;
+        case AnimalKind::Cow:
+            return kCowCost;
+        case AnimalKind::Sheep:
+            return kSheepCost;
+        case AnimalKind::Pig:
+            return kSheepCost;
+    }
+    return kChickenCost;
+}
+
+ItemId FeedFor(AnimalKind kind) {
+    return kind == AnimalKind::Chicken ? ItemId::ChickenFeed : ItemId::CowFeed;
+}
+
+ItemId ProductFor(AnimalKind kind) {
+    switch (kind) {
+        case AnimalKind::Chicken:
+            return ItemId::Egg;
+        case AnimalKind::Cow:
+            return ItemId::Milk;
+        case AnimalKind::Sheep:
+            return ItemId::Wool;
+        case AnimalKind::Pig:
+            return ItemId::Wool;
+    }
+    return ItemId::Egg;
+}
+
+int ProductionTicksFor(AnimalKind kind) {
+    switch (kind) {
+        case AnimalKind::Chicken:
+            return kChickenEggTicks;
+        case AnimalKind::Cow:
+            return kCowMilkTicks;
+        case AnimalKind::Sheep:
+            return kSheepWoolTicks;
+        case AnimalKind::Pig:
+            return kSheepWoolTicks;
+    }
+    return kChickenEggTicks;
+}
+
+}  // namespace
 
 std::vector<RanchFacilityView> RanchSystem::FacilityViews() const {
     std::vector<RanchFacilityView> views;
@@ -49,21 +124,40 @@ std::vector<AnimalView> RanchSystem::AnimalViews(int facility_id, int current_ti
         const int remaining = animal.state == AnimalState::Producing
                                   ? std::max(0, animal.finish_tick - current_tick)
                                   : 0;
-        views.push_back(AnimalView{animal.id, animal.state, remaining});
+        views.push_back(AnimalView{animal.id, animal.kind, animal.state, remaining});
     }
     return views;
 }
 
+Result<int> RanchSystem::BuildFacility(PlayerState& player, RanchFacilityKind kind) {
+    if (!player.IsUnlocked(UnlockGraph::FacilityUnlock(kind))) {
+        return Result<int>::failure(ErrorCode::ContentLocked);
+    }
+    auto spent = player.TrySpendGold(FacilityBuildCost(kind));
+    if (!spent.ok()) {
+        return Result<int>::failure(spent.code);
+    }
+    RanchFacilityData facility;
+    facility.id = next_facility_id_++;
+    facility.kind = kind;
+    facility.level = 1;
+    facility.capacity = FacilityCapacity(kind);
+    facilities_.push_back(facility);
+    return Result<int>::success(facility.id);
+}
+
 Result<int> RanchSystem::BuyAnimal(PlayerState& player, int facility_id, AnimalKind kind) {
     RanchFacilityData* facility = FindFacility(facility_id);
-    if (facility == nullptr || facility->kind != RanchFacilityKind::ChickenCoop ||
-        kind != AnimalKind::Chicken) {
+    if (facility == nullptr || !FacilityMatches(facility->kind, kind)) {
         return Result<int>::failure(ErrorCode::FacilityOutOfRange);
+    }
+    if (!player.IsUnlocked(UnlockGraph::AnimalUnlock(kind))) {
+        return Result<int>::failure(ErrorCode::ContentLocked);
     }
     if (static_cast<int>(facility->animals.size()) >= facility->capacity) {
         return Result<int>::failure(ErrorCode::FacilityFull);
     }
-    auto spent = player.TrySpendGold(kChickenCost);
+    auto spent = player.TrySpendGold(AnimalCost(kind));
     if (!spent.ok()) {
         return Result<int>::failure(spent.code);
     }
@@ -87,12 +181,12 @@ Result<void> RanchSystem::FeedAnimal(PlayerState& player, int facility_id, int a
     if (animal->state != AnimalState::Idle) {
         return Result<void>::failure(ErrorCode::AnimalNotIdle);
     }
-    auto removed = player.TryRemoveItem(ItemId::ChickenFeed, 1);
+    auto removed = player.TryRemoveItem(FeedFor(animal->kind), 1);
     if (!removed.ok()) {
         return removed;
     }
     animal->state = AnimalState::Producing;
-    animal->finish_tick = current_tick + kChickenEggTicks;
+    animal->finish_tick = current_tick + ProductionTicksFor(animal->kind);
     return Result<void>::success();
 }
 
@@ -108,7 +202,7 @@ Result<void> RanchSystem::HarvestAnimal(PlayerState& player, int facility_id, in
     if (animal->state != AnimalState::Ready) {
         return Result<void>::failure(ErrorCode::AnimalNotReady);
     }
-    auto added = player.TryAddItem(ItemId::Egg, 1);
+    auto added = player.TryAddItem(ProductFor(animal->kind), 1);
     if (!added.ok()) {
         return added;
     }
@@ -124,7 +218,7 @@ Result<int> RanchSystem::BatchFeed(PlayerState& player, int facility_id, int cur
     }
     int count = 0;
     for (AnimalData& animal : facility->animals) {
-        if (animal.state != AnimalState::Idle || !player.HasItem(ItemId::ChickenFeed, 1)) {
+        if (animal.state != AnimalState::Idle || !player.HasItem(FeedFor(animal.kind), 1)) {
             continue;
         }
         auto fed = FeedAnimal(player, facility_id, animal.id, current_tick);
@@ -170,12 +264,17 @@ void RanchSystem::Tick(int current_tick, float weather_multiplier) {
 void RanchSystem::ClearForLoad() {
     facilities_.clear();
     next_animal_id_ = 1;
+    next_facility_id_ = 1;
 }
 
 void RanchSystem::SetFacilitiesForLoad(const std::vector<RanchFacilityData>& facilities,
                                        int next_animal_id) {
     facilities_ = facilities;
     next_animal_id_ = std::max(1, next_animal_id);
+    next_facility_id_ = 1;
+    for (const RanchFacilityData& facility : facilities_) {
+        next_facility_id_ = std::max(next_facility_id_, facility.id + 1);
+    }
 }
 
 RanchFacilityData* RanchSystem::FindFacility(int facility_id) {
@@ -215,4 +314,3 @@ const AnimalData* RanchSystem::FindAnimal(const RanchFacilityData& facility, int
 }
 
 }  // namespace farm
-

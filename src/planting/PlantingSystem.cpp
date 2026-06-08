@@ -1,6 +1,7 @@
 #include "farm/planting/PlantingSystem.h"
 
 #include "farm/common/Constants.h"
+#include "farm/core/UnlockGraph.h"
 #include "farm/inventory/PlayerState.h"
 
 #include <algorithm>
@@ -132,6 +133,9 @@ Result<void> PlantingSystem::Harvest(PlayerState& player, int plot_id) {
 }
 
 Result<int> PlantingSystem::Expand(PlayerState& player) {
+    if (!player.IsUnlocked(UnlockId::ExtraLand)) {
+        return Result<int>::failure(ErrorCode::ContentLocked);
+    }
     if (static_cast<int>(plots_.size()) >= kMaxPlotCount) {
         return Result<int>::failure(ErrorCode::PlotOutOfRange);
     }
@@ -176,4 +180,3 @@ void PlantingSystem::UpdateMaturity(int current_tick) {
 }
 
 }  // namespace farm
-
