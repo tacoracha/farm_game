@@ -9,6 +9,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -53,6 +54,16 @@ constexpr int kSpeed1 = 22;
 constexpr int kSpeed2 = 23;
 constexpr int kSpeed4 = 24;
 
+constexpr UINT_PTR kGameTimerId = 1;
+constexpr UINT_PTR kTransitionTimerId = 2;
+constexpr UINT_PTR kMessageTimerId = 3;
+constexpr ULONGLONG kTransitionDurationMs = 320;
+constexpr int kGameContentTop = 120;
+constexpr int kTransitionDriftPixels = 12;
+constexpr ULONGLONG kMessageVisibleMs = 3600;
+constexpr ULONGLONG kMessageErrorVisibleMs = 5200;
+constexpr ULONGLONG kMessageFadeMs = 700;
+
 constexpr int kPlantWheat = 100;
 constexpr int kPlantCorn = 101;
 constexpr int kPlantCarrot = 102;
@@ -62,6 +73,13 @@ constexpr int kFertilize = 105;
 constexpr int kHarvest = 106;
 constexpr int kExpand = 107;
 
+constexpr int kFarmPlotLeft = 40;
+constexpr int kFarmPlotTop = 165;
+constexpr int kFarmPlotSize = 65;
+constexpr int kFarmPlotStep = 80;
+constexpr int kFarmPlotColumns = 6;
+constexpr int kFarmPlotRows = 3;
+
 constexpr int kBuildCowBarn = 200;
 constexpr int kBuildSheepPen = 201;
 constexpr int kBuyChicken = 202;
@@ -69,6 +87,12 @@ constexpr int kBuyCow = 203;
 constexpr int kBuySheep = 204;
 constexpr int kFeedAll = 205;
 constexpr int kHarvestAll = 206;
+constexpr int kFeedSelected = 207;
+constexpr int kHarvestSelected = 208;
+constexpr int kRanchPagePrevious = 209;
+constexpr int kRanchPageNext = 210;
+constexpr int kSelectRanchFacilityBase = 220;
+constexpr int kRanchFacilitiesPerPage = 3;
 
 constexpr int kMakeChickenFeed = 300;
 constexpr int kMakeChickenFeed3 = 301;
@@ -92,6 +116,13 @@ constexpr int kSellTomato = 603;
 constexpr int kSellEgg = 604;
 constexpr int kSellMilk = 605;
 constexpr int kSellWool = 606;
+constexpr int kWarehouseSellSelected = 607;
+constexpr int kWarehouseToggleLock = 608;
+constexpr int kWarehouseUpgrade = 609;
+constexpr int kWarehousePagePrevious = 610;
+constexpr int kWarehousePageNext = 611;
+constexpr int kWarehouseItemBase = 620;
+constexpr int kWarehouseItemsPerPage = 8;
 
 constexpr int kSave = 700;
 constexpr int kLoad = 701;
@@ -177,6 +208,22 @@ const wchar_t* ItemName(ItemId item) {
     return L"未知物品";
 }
 
+const wchar_t* ItemCategoryName(ItemCategory category) {
+    switch (category) {
+        case ItemCategory::Seed:
+            return L"种子";
+        case ItemCategory::Crop:
+            return L"作物";
+        case ItemCategory::Feed:
+            return L"饲料";
+        case ItemCategory::AnimalProduct:
+            return L"畜产品";
+        case ItemCategory::Consumable:
+            return L"消耗品";
+    }
+    return L"物品";
+}
+
 const wchar_t* FacilityName(RanchFacilityKind kind) {
     switch (kind) {
         case RanchFacilityKind::ChickenCoop:
@@ -189,6 +236,77 @@ const wchar_t* FacilityName(RanchFacilityKind kind) {
             return L"猪圈";
     }
     return L"设施";
+}
+
+AnimalKind FacilityAnimalKind(RanchFacilityKind kind) {
+    switch (kind) {
+        case RanchFacilityKind::ChickenCoop:
+            return AnimalKind::Chicken;
+        case RanchFacilityKind::CowBarn:
+            return AnimalKind::Cow;
+        case RanchFacilityKind::SheepPen:
+            return AnimalKind::Sheep;
+        case RanchFacilityKind::PigPen:
+            return AnimalKind::Pig;
+    }
+    return AnimalKind::Chicken;
+}
+
+const wchar_t* AnimalName(AnimalKind kind) {
+    switch (kind) {
+        case AnimalKind::Chicken:
+            return L"鸡";
+        case AnimalKind::Cow:
+            return L"牛";
+        case AnimalKind::Sheep:
+            return L"羊";
+        case AnimalKind::Pig:
+            return L"猪";
+    }
+    return L"动物";
+}
+
+ItemId AnimalFeed(AnimalKind kind) {
+    return kind == AnimalKind::Chicken ? ItemId::ChickenFeed : ItemId::CowFeed;
+}
+
+ItemId AnimalProduct(AnimalKind kind) {
+    switch (kind) {
+        case AnimalKind::Chicken:
+            return ItemId::Egg;
+        case AnimalKind::Cow:
+            return ItemId::Milk;
+        case AnimalKind::Sheep:
+        case AnimalKind::Pig:
+            return ItemId::Wool;
+    }
+    return ItemId::Egg;
+}
+
+int AnimalPurchaseCost(AnimalKind kind) {
+    switch (kind) {
+        case AnimalKind::Chicken:
+            return kChickenCost;
+        case AnimalKind::Cow:
+            return kCowCost;
+        case AnimalKind::Sheep:
+        case AnimalKind::Pig:
+            return kSheepCost;
+    }
+    return kChickenCost;
+}
+
+UnlockId AnimalUnlock(AnimalKind kind) {
+    switch (kind) {
+        case AnimalKind::Chicken:
+            return UnlockId::Chicken;
+        case AnimalKind::Cow:
+            return UnlockId::Cow;
+        case AnimalKind::Sheep:
+        case AnimalKind::Pig:
+            return UnlockId::Sheep;
+    }
+    return UnlockId::Chicken;
 }
 
 std::wstring CropTextureKey(ItemId crop, int stage) {
@@ -415,6 +533,8 @@ private:
 
     void PaintBuffered(HDC hdc);
     void Paint(HDC hdc);
+    void SwitchScreen(Screen next_screen);
+    void FinishTransition();
     void DrawMenu(HDC hdc);
     void DrawGame(HDC hdc);
     void DrawStatus(HDC hdc);
@@ -438,16 +558,33 @@ private:
     std::wstring SavePath() const;
     bool TryContinue();
     int FirstFacility(RanchFacilityKind kind) const;
+    int SelectedFacility(RanchFacilityKind kind) const;
 
     HWND hwnd_ = nullptr;
     HFONT font_ = nullptr;
     TextureManager textures_;
     Game game_ = Game::NewGame();
     Screen screen_ = Screen::Menu;
+    Screen previous_screen_ = Screen::Menu;
+    HBITMAP previous_frame_ = nullptr;
+    HBITMAP transition_frame_ = nullptr;
+    int previous_frame_width_ = 0;
+    int previous_frame_height_ = 0;
+    int transition_frame_width_ = 0;
+    int transition_frame_height_ = 0;
+    ULONGLONG transition_started_at_ = 0;
+    int transition_direction_ = 1;
+    bool transition_active_ = false;
     std::wstring message_ = L"准备就绪。";
+    ULONGLONG message_changed_at_ = 0;
+    bool message_is_error_ = false;
     std::vector<UiButton> buttons_;
     int selected_plot_ = 0;
     int selected_order_ = 0;
+    int selected_ranch_facility_id_ = 1;
+    int ranch_facility_page_ = 0;
+    ItemId selected_warehouse_item_ = ItemId::WheatSeed;
+    int warehouse_page_ = 0;
 };
 
 int FarmWindow::Run() {
@@ -479,6 +616,16 @@ int FarmWindow::Run() {
     textures_.Load(L"soil", L"assets/textures/terrain/soil_dry_tile.png", L"assets/textures/soil.ppm");
     textures_.Load(L"soil_wet", L"assets/textures/terrain/soil_wet_tile.png", L"assets/textures/soil.ppm");
     textures_.Load(L"wood", L"assets/textures/ui/button_normal.png", L"assets/textures/wood.ppm");
+    textures_.Load(L"menu_background", L"assets/textures/ui/menu_background.png", L"");
+    textures_.Load(L"farm_background", L"assets/textures/terrain/farm_background.png", L"");
+    textures_.Load(L"ranch_background", L"assets/textures/terrain/ranch_background.png", L"");
+    textures_.Load(L"workshop_background", L"assets/textures/terrain/workshop_background.png", L"");
+    textures_.Load(L"orders_background", L"assets/textures/terrain/orders_background.png", L"");
+    textures_.Load(L"warehouse_background", L"assets/textures/terrain/warehouse_background.png",
+                   L"");
+    textures_.Load(L"shop_background", L"assets/textures/terrain/shop_background.png", L"");
+    textures_.Load(L"unlock_background", L"assets/textures/terrain/unlock_background.png", L"");
+    textures_.Load(L"save_background", L"assets/textures/terrain/save_background.png", L"");
     textures_.Load(L"top_bar", L"assets/textures/ui/top_bar.png", L"");
     textures_.Load(L"wood_card", L"assets/textures/ui/wood_card.png", L"assets/textures/wood.ppm");
     textures_.Load(L"order_card", L"assets/textures/ui/order_card.png", L"assets/textures/wood.ppm");
@@ -510,6 +657,10 @@ int FarmWindow::Run() {
     textures_.Load(L"animal_cow_idle", L"assets/textures/animals/cow/cow_idle.png", L"");
     textures_.Load(L"animal_sheep_idle", L"assets/textures/animals/sheep/sheep_idle.png", L"");
     textures_.Load(L"animal_pig_idle", L"assets/textures/animals/pig/pig_idle.png", L"");
+    textures_.Load(L"animal_chicken_scene",
+                   L"assets/textures/animals/chicken/chicken_scene.png", L"");
+    textures_.Load(L"animal_cow_scene", L"assets/textures/animals/cow/cow_scene.png", L"");
+    textures_.Load(L"animal_sheep_scene", L"assets/textures/animals/sheep/sheep_scene.png", L"");
     textures_.Load(L"animal_unknown", L"assets/textures/placeholders/animal_unknown.png", L"");
     textures_.Load(L"building_chicken_coop", L"assets/textures/buildings/chicken_coop.png", L"");
     textures_.Load(L"building_cow_barn", L"assets/textures/buildings/cow_barn.png", L"");
@@ -542,7 +693,7 @@ int FarmWindow::Run() {
                         DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
 
     ShowWindow(hwnd_, SW_SHOW);
-    SetTimer(hwnd_, 1, 1000, nullptr);
+    SetTimer(hwnd_, kGameTimerId, 1000, nullptr);
 
     MSG msg{};
     while (GetMessage(&msg, nullptr, 0, 0) > 0) {
@@ -553,6 +704,14 @@ int FarmWindow::Run() {
 }
 
 FarmWindow::~FarmWindow() {
+    if (previous_frame_ != nullptr) {
+        DeleteObject(previous_frame_);
+        previous_frame_ = nullptr;
+    }
+    if (transition_frame_ != nullptr) {
+        DeleteObject(transition_frame_);
+        transition_frame_ = nullptr;
+    }
     if (font_ != nullptr) {
         DeleteObject(font_);
         font_ = nullptr;
@@ -584,6 +743,9 @@ LRESULT FarmWindow::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam) {
         case WM_ERASEBKGND:
             return 1;
         case WM_LBUTTONDOWN: {
+            if (transition_active_) {
+                return 0;
+            }
             const int x = LOWORD(lparam);
             const int y = HIWORD(lparam);
             for (const UiButton& button : buttons_) {
@@ -594,23 +756,54 @@ LRESULT FarmWindow::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam) {
                     return 0;
                 }
             }
-            if (screen_ == Screen::Farm && y >= 165 && y < 405 && x >= 40 && x < 520) {
-                selected_plot_ = ((y - 165) / 80) * 6 + (x - 40) / 80;
-                InvalidateRect(hwnd_, nullptr, FALSE);
+            if (screen_ == Screen::Farm && y >= kFarmPlotTop &&
+                y < kFarmPlotTop + kFarmPlotRows * kFarmPlotStep && x >= kFarmPlotLeft &&
+                x < kFarmPlotLeft + kFarmPlotColumns * kFarmPlotStep) {
+                const int row = (y - kFarmPlotTop) / kFarmPlotStep;
+                const int col = (x - kFarmPlotLeft) / kFarmPlotStep;
+                const int local_x = (x - kFarmPlotLeft) % kFarmPlotStep;
+                const int local_y = (y - kFarmPlotTop) % kFarmPlotStep;
+                const int plot_index = row * kFarmPlotColumns + col;
+                if (local_x < kFarmPlotSize && local_y < kFarmPlotSize) {
+                    if (plot_index < static_cast<int>(game_.Planting().Plots().size())) {
+                        selected_plot_ = plot_index;
+                    } else {
+                        SetMessage(L"这块土地尚未扩建，请使用右侧的购买土地按钮。");
+                    }
+                    InvalidateRect(hwnd_, nullptr, FALSE);
+                }
             }
             return 0;
         }
-        case WM_TIMER:
-            if (screen_ != Screen::Menu) {
+        case WM_TIMER: {
+            const UINT_PTR timer_id = static_cast<UINT_PTR>(wparam);
+            if (timer_id == kTransitionTimerId) {
+                if (GetTickCount64() - transition_started_at_ >= kTransitionDurationMs) {
+                    FinishTransition();
+                }
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (timer_id == kMessageTimerId) {
+                const ULONGLONG visible_ms =
+                    message_is_error_ ? kMessageErrorVisibleMs : kMessageVisibleMs;
+                if (GetTickCount64() - message_changed_at_ >= visible_ms) {
+                    KillTimer(hwnd_, kMessageTimerId);
+                }
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (timer_id == kGameTimerId && screen_ != Screen::Menu) {
                 game_.AdvanceBySpeed();
                 if (!game_.LastEventMessage().empty()) {
-                    message_ = Utf8ToWide(game_.LastEventMessage());
+                    SetMessage(Utf8ToWide(game_.LastEventMessage()));
                     game_.ClearLastEventMessage();
                 }
                 game_.AutoSaveIfNeeded(Narrow(SavePath()));
                 InvalidateRect(hwnd_, nullptr, FALSE);
             }
             return 0;
+        }
         case WM_DESTROY:
             PostQuitMessage(0);
             return 0;
@@ -623,14 +816,92 @@ void FarmWindow::PaintBuffered(HDC target) {
     GetClientRect(hwnd_, &area);
     const int width = area.right - area.left;
     const int height = area.bottom - area.top;
+
+    if (transition_active_ && previous_frame_ != nullptr &&
+        previous_frame_width_ == width && previous_frame_height_ == height) {
+        if (transition_frame_ == nullptr || transition_frame_width_ != width ||
+            transition_frame_height_ != height) {
+            if (transition_frame_ != nullptr) {
+                DeleteObject(transition_frame_);
+            }
+            HDC render_dc = CreateCompatibleDC(target);
+            transition_frame_ = CreateCompatibleBitmap(target, width, height);
+            HGDIOBJ render_old = SelectObject(render_dc, transition_frame_);
+            Paint(render_dc);
+            SelectObject(render_dc, render_old);
+            DeleteDC(render_dc);
+            transition_frame_width_ = width;
+            transition_frame_height_ = height;
+        }
+
+        const ULONGLONG elapsed = GetTickCount64() - transition_started_at_;
+        const double linear_progress =
+            std::min(1.0, static_cast<double>(elapsed) /
+                              static_cast<double>(kTransitionDurationMs));
+        const double eased_progress =
+            linear_progress * linear_progress * linear_progress *
+            (linear_progress * (linear_progress * 6.0 - 15.0) + 10.0);
+        const int incoming_offset = static_cast<int>(
+            (1.0 - eased_progress) * static_cast<double>(kTransitionDriftPixels));
+        const int content_top =
+            previous_screen_ == Screen::Menu || screen_ == Screen::Menu ? 0 : kGameContentTop;
+
+        HDC previous_dc = CreateCompatibleDC(target);
+        HGDIOBJ previous_old = SelectObject(previous_dc, previous_frame_);
+        HDC incoming_dc = CreateCompatibleDC(target);
+        HGDIOBJ incoming_old = SelectObject(incoming_dc, transition_frame_);
+        BitBlt(target, 0, 0, width, height, incoming_dc, 0, 0, SRCCOPY);
+        BitBlt(target, 0, content_top, width, height - content_top, previous_dc, 0, content_top,
+               SRCCOPY);
+
+        using AlphaBlendFunction = BOOL(WINAPI*)(HDC, int, int, int, int, HDC, int, int, int,
+                                                 int, BLENDFUNCTION);
+        static const AlphaBlendFunction alpha_blend = [] {
+            HMODULE module = LoadLibraryW(L"msimg32.dll");
+            return module == nullptr
+                       ? nullptr
+                       : reinterpret_cast<AlphaBlendFunction>(
+                             GetProcAddress(module, "AlphaBlend"));
+        }();
+        const BYTE opacity =
+            static_cast<BYTE>(std::clamp(eased_progress * 255.0, 0.0, 255.0));
+        const int incoming_x =
+            transition_direction_ > 0 ? incoming_offset : -incoming_offset;
+        if (alpha_blend != nullptr && opacity > 0) {
+            BLENDFUNCTION blend{};
+            blend.BlendOp = AC_SRC_OVER;
+            blend.SourceConstantAlpha = opacity;
+            alpha_blend(target, incoming_x, content_top, width, height - content_top, incoming_dc,
+                        0, content_top, width, height - content_top, blend);
+        } else if (eased_progress >= 0.5) {
+            BitBlt(target, 0, content_top, width, height - content_top, incoming_dc, 0,
+                   content_top, SRCCOPY);
+        }
+        SelectObject(incoming_dc, incoming_old);
+        DeleteDC(incoming_dc);
+        SelectObject(previous_dc, previous_old);
+        DeleteDC(previous_dc);
+        return;
+    }
+
+    if (transition_active_) {
+        FinishTransition();
+    }
+
     HDC memory = CreateCompatibleDC(target);
     HBITMAP bitmap = CreateCompatibleBitmap(target, width, height);
     HGDIOBJ old = SelectObject(memory, bitmap);
     Paint(memory);
     BitBlt(target, 0, 0, width, height, memory, 0, 0, SRCCOPY);
     SelectObject(memory, old);
-    DeleteObject(bitmap);
     DeleteDC(memory);
+
+    if (previous_frame_ != nullptr) {
+        DeleteObject(previous_frame_);
+    }
+    previous_frame_ = bitmap;
+    previous_frame_width_ = width;
+    previous_frame_height_ = height;
 }
 
 void FarmWindow::Paint(HDC hdc) {
@@ -640,7 +911,27 @@ void FarmWindow::Paint(HDC hdc) {
     }
     RECT area;
     GetClientRect(hwnd_, &area);
-    DrawTextureOrFill(hdc, L"grass", area, RGB(238, 226, 190));
+    if (screen_ == Screen::Menu) {
+        DrawTextureOrFill(hdc, L"menu_background", area, RGB(128, 180, 104));
+    } else if (screen_ == Screen::Farm) {
+        DrawTextureOrFill(hdc, L"farm_background", area, RGB(128, 180, 104));
+    } else if (screen_ == Screen::Ranch) {
+        DrawTextureOrFill(hdc, L"ranch_background", area, RGB(128, 180, 104));
+    } else if (screen_ == Screen::Workshop) {
+        DrawTextureOrFill(hdc, L"workshop_background", area, RGB(128, 180, 104));
+    } else if (screen_ == Screen::Orders) {
+        DrawTextureOrFill(hdc, L"orders_background", area, RGB(128, 180, 104));
+    } else if (screen_ == Screen::Warehouse) {
+        DrawTextureOrFill(hdc, L"warehouse_background", area, RGB(128, 180, 104));
+    } else if (screen_ == Screen::Shop) {
+        DrawTextureOrFill(hdc, L"shop_background", area, RGB(128, 180, 104));
+    } else if (screen_ == Screen::Unlock) {
+        DrawTextureOrFill(hdc, L"unlock_background", area, RGB(128, 180, 104));
+    } else if (screen_ == Screen::Save) {
+        DrawTextureOrFill(hdc, L"save_background", area, RGB(128, 180, 104));
+    } else {
+        DrawTextureOrFill(hdc, L"grass", area, RGB(238, 226, 190));
+    }
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, RGB(58, 54, 39));
     if (screen_ == Screen::Menu) {
@@ -650,13 +941,74 @@ void FarmWindow::Paint(HDC hdc) {
     }
 }
 
+void FarmWindow::SwitchScreen(Screen next_screen) {
+    if (screen_ == next_screen) {
+        return;
+    }
+    previous_screen_ = screen_;
+    transition_direction_ =
+        static_cast<int>(next_screen) >= static_cast<int>(screen_) ? 1 : -1;
+    if (transition_frame_ != nullptr) {
+        DeleteObject(transition_frame_);
+        transition_frame_ = nullptr;
+    }
+    transition_frame_width_ = 0;
+    transition_frame_height_ = 0;
+    screen_ = next_screen;
+    transition_started_at_ = GetTickCount64();
+    transition_active_ = previous_frame_ != nullptr;
+    if (transition_active_) {
+        SetTimer(hwnd_, kTransitionTimerId, 16, nullptr);
+    }
+}
+
+void FarmWindow::FinishTransition() {
+    transition_active_ = false;
+    KillTimer(hwnd_, kTransitionTimerId);
+    if (transition_frame_ != nullptr) {
+        if (previous_frame_ != nullptr) {
+            DeleteObject(previous_frame_);
+        }
+        previous_frame_ = transition_frame_;
+        previous_frame_width_ = transition_frame_width_;
+        previous_frame_height_ = transition_frame_height_;
+        transition_frame_ = nullptr;
+        transition_frame_width_ = 0;
+        transition_frame_height_ = 0;
+    }
+}
+
 void FarmWindow::DrawMenu(HDC hdc) {
-    Text(hdc, 70, 70, L"农场游戏");
-    Text(hdc, 72, 110, L"1 秒现实时间 = 2 分钟游戏时间。通过 DAG 解锁种子、土地和动物。");
-    Button(hdc, kBtnNew, RECT{70, 170, 260, 215}, L"新游戏");
-    Button(hdc, kBtnContinue, RECT{70, 230, 260, 275}, L"继续游戏");
-    Text(hdc, 70, 330, L"目标：种植、加工饲料、养殖、交付订单、升级并解锁更多内容。");
-    Text(hdc, 70, 365, message_);
+    HFONT title_font = CreateFontW(54, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                   OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                                   DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
+    HGDIOBJ old_font = SelectObject(hdc, title_font);
+    SetTextColor(hdc, RGB(42, 63, 35));
+    Text(hdc, 67, 65, L"田园时光");
+    SetTextColor(hdc, RGB(255, 248, 218));
+    Text(hdc, 63, 61, L"田园时光");
+    SelectObject(hdc, old_font);
+    DeleteObject(title_font);
+
+    HFONT subtitle_font =
+        CreateFontW(22, 0, 0, 0, FW_MEDIUM, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                    DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
+    old_font = SelectObject(hdc, subtitle_font);
+    SetTextColor(hdc, RGB(45, 67, 38));
+    Text(hdc, 67, 128, L"播种、经营、养殖，打造属于你的农场");
+    SetTextColor(hdc, RGB(255, 248, 218));
+    Text(hdc, 65, 126, L"播种、经营、养殖，打造属于你的农场");
+    SelectObject(hdc, old_font);
+    DeleteObject(subtitle_font);
+
+    Button(hdc, kBtnNew, RECT{65, 190, 275, 238}, L"新游戏");
+    Button(hdc, kBtnContinue, RECT{65, 252, 275, 300}, L"继续游戏");
+
+    SetTextColor(hdc, RGB(255, 248, 218));
+    Text(hdc, 65, 344, L"种植作物 · 加工饲料 · 经营牧场 · 完成订单");
+    Text(hdc, 65, 382, message_);
+    SetTextColor(hdc, RGB(58, 54, 39));
 }
 
 void FarmWindow::DrawGame(HDC hdc) {
@@ -690,249 +1042,1797 @@ void FarmWindow::DrawGame(HDC hdc) {
         case Screen::Menu:
             break;
     }
-    Fill(hdc, RECT{20, 630, 1060, 675}, RGB(250, 242, 214));
-    Text(hdc, 35, 644, message_);
+
+    if (message_changed_at_ == 0) {
+        return;
+    }
+    const ULONGLONG elapsed = GetTickCount64() - message_changed_at_;
+    const ULONGLONG visible_ms =
+        message_is_error_ ? kMessageErrorVisibleMs : kMessageVisibleMs;
+    if (elapsed >= visible_ms) {
+        return;
+    }
+
+    double opacity = 1.0;
+    if (elapsed < 180) {
+        const double progress = static_cast<double>(elapsed) / 180.0;
+        opacity = progress * progress * (3.0 - 2.0 * progress);
+    } else if (elapsed > visible_ms - kMessageFadeMs) {
+        const double progress =
+            static_cast<double>(visible_ms - elapsed) / static_cast<double>(kMessageFadeMs);
+        opacity = progress * progress * (3.0 - 2.0 * progress);
+    }
+
+    SIZE text_size{};
+    GetTextExtentPoint32W(hdc, message_.c_str(), static_cast<int>(message_.size()), &text_size);
+    const int toast_width = std::clamp(static_cast<int>(text_size.cx) + 64, 230, 680);
+    const int toast_height = 42;
+    const int toast_x = 28;
+    const int toast_y = 622 + static_cast<int>((1.0 - opacity) * 8.0);
+
+    HDC toast_dc = CreateCompatibleDC(hdc);
+    HBITMAP toast_bitmap = CreateCompatibleBitmap(hdc, toast_width, toast_height);
+    HGDIOBJ old_bitmap = SelectObject(toast_dc, toast_bitmap);
+    if (font_ != nullptr) {
+        SelectObject(toast_dc, font_);
+    }
+    SetBkMode(toast_dc, TRANSPARENT);
+    Fill(toast_dc, RECT{0, 0, toast_width, toast_height}, RGB(255, 246, 216));
+    Fill(toast_dc, RECT{0, 0, 6, toast_height},
+         message_is_error_ ? RGB(180, 72, 52) : RGB(83, 145, 49));
+    HBRUSH toast_border = CreateSolidBrush(RGB(143, 96, 48));
+    RECT toast_rect{0, 0, toast_width, toast_height};
+    FrameRect(toast_dc, &toast_rect, toast_border);
+    DeleteObject(toast_border);
+    SetTextColor(toast_dc, RGB(66, 46, 27));
+    TextOutW(toast_dc, 22, 10, message_.c_str(), static_cast<int>(message_.size()));
+
+    using AlphaBlendFunction = BOOL(WINAPI*)(HDC, int, int, int, int, HDC, int, int, int, int,
+                                             BLENDFUNCTION);
+    static const AlphaBlendFunction alpha_blend = [] {
+        HMODULE module = LoadLibraryW(L"msimg32.dll");
+        return module == nullptr
+                   ? nullptr
+                   : reinterpret_cast<AlphaBlendFunction>(GetProcAddress(module, "AlphaBlend"));
+    }();
+    if (alpha_blend != nullptr) {
+        BLENDFUNCTION blend{};
+        blend.BlendOp = AC_SRC_OVER;
+        blend.SourceConstantAlpha =
+            static_cast<BYTE>(std::clamp(opacity * 255.0, 0.0, 255.0));
+        alpha_blend(hdc, toast_x, toast_y, toast_width, toast_height, toast_dc, 0, 0, toast_width,
+                    toast_height, blend);
+    } else if (opacity >= 0.5) {
+        BitBlt(hdc, toast_x, toast_y, toast_width, toast_height, toast_dc, 0, 0, SRCCOPY);
+    }
+    SelectObject(toast_dc, old_bitmap);
+    DeleteObject(toast_bitmap);
+    DeleteDC(toast_dc);
 }
 
 void FarmWindow::DrawStatus(HDC hdc) {
-    DrawTextureOrFill(hdc, L"top_bar", RECT{0, 0, 1120, 62}, RGB(106, 150, 87));
-    SetTextColor(hdc, RGB(255, 250, 230));
     const TimeSnapshot time = game_.Time().Snapshot();
     const WeatherSnapshot weather = game_.Weather().Snapshot();
-    DrawTextureOrFill(hdc, L"item_coin", RECT{22, 14, 46, 38}, RGB(237, 190, 67));
-    DrawTextureOrFill(hdc, WeatherTextureKey(weather.weather), RECT{650, 12, 690, 52},
+    const COLORREF parchment = RGB(255, 241, 205);
+    const COLORREF parchment_light = RGB(255, 248, 224);
+    const COLORREF wood = RGB(121, 74, 35);
+    const COLORREF wood_light = RGB(185, 124, 61);
+    const COLORREF text_dark = RGB(64, 43, 24);
+    const COLORREF green = RGB(92, 148, 45);
+    const COLORREF gold = RGB(226, 166, 44);
+
+    auto Frame = [&](RECT rect, COLORREF color) {
+        HBRUSH brush = CreateSolidBrush(color);
+        FrameRect(hdc, &rect, brush);
+        DeleteObject(brush);
+    };
+    auto StatusCard = [&](RECT rect) {
+        Fill(hdc, rect, parchment);
+        Frame(rect, wood);
+        RECT inner = rect;
+        InflateRect(&inner, -3, -3);
+        Frame(inner, wood_light);
+    };
+
+    HFONT status_font =
+        CreateFontW(18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                    DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
+    HGDIOBJ old_font = SelectObject(hdc, status_font);
+    SetTextColor(hdc, text_dark);
+
+    RECT resource_card{18, 8, 190, 59};
+    StatusCard(resource_card);
+    DrawTextureOrFill(hdc, L"item_coin", RECT{31, 20, 58, 47}, gold);
+    Text(hdc, 68, 23, std::to_wstring(game_.Player().Gold()) + L" 金币");
+
+    RECT progress_card{200, 8, 470, 59};
+    StatusCard(progress_card);
+    Text(hdc, 215, 14, L"等级 " + std::to_wstring(game_.Player().Level()));
+    const int experience = game_.Player().Experience();
+    const int experience_target = std::max(1, game_.Player().ExpToNextLevel());
+    Text(hdc, 370, 14,
+         std::to_wstring(experience) + L"/" + std::to_wstring(experience_target));
+    RECT exp_back{215, 38, 450, 49};
+    Fill(hdc, exp_back, RGB(186, 157, 104));
+    RECT exp_fill = exp_back;
+    exp_fill.right =
+        exp_back.left + (exp_back.right - exp_back.left) *
+                            std::min(experience, experience_target) / experience_target;
+    Fill(hdc, exp_fill, green);
+    Frame(exp_back, wood);
+
+    RECT time_card{480, 8, 705, 59};
+    StatusCard(time_card);
+    std::wstringstream time_text;
+    time_text << L"第 " << time.day << L" 天   " << std::setw(2) << std::setfill(L'0')
+              << time.hour << L":" << std::setw(2) << time.minute;
+    Text(hdc, 500, 23, time_text.str());
+
+    RECT weather_card{715, 8, 900, 59};
+    StatusCard(weather_card);
+    DrawTextureOrFill(hdc, WeatherTextureKey(weather.weather), RECT{728, 14, 770, 54},
                       RGB(198, 218, 128));
-    std::wstringstream ss;
-    ss << L"金币 " << game_.Player().Gold() << L"   等级 " << game_.Player().Level()
-       << L"   经验 " << game_.Player().Experience() << L"/"
-       << game_.Player().ExpToNextLevel() << L"   第 " << time.day << L" 天 "
-       << std::setw(2) << std::setfill(L'0') << time.hour << L":" << std::setw(2)
-       << time.minute << std::setfill(L' ') << L"   天气 " << WeatherName(weather.weather)
-       << L"   速度 " << SpeedName(time.speed);
-    Text(hdc, 52, 20, ss.str());
+    Text(hdc, 782, 23, WeatherName(weather.weather));
+
+    RECT speed_card{910, 8, 1085, 59};
+    StatusCard(speed_card);
+    Fill(hdc, RECT{925, 20, 951, 47}, time.paused ? RGB(177, 91, 61) : green);
+    Frame(RECT{925, 20, 951, 47}, wood);
+    Text(hdc, 962, 23,
+         time.paused ? L"已暂停" : L"速度 " + std::wstring(SpeedName(time.speed)));
+
+    SelectObject(hdc, old_font);
+    DeleteObject(status_font);
     SetTextColor(hdc, RGB(58, 54, 39));
 }
 
 void FarmWindow::DrawTabs(HDC hdc) {
-    Button(hdc, kTabFarm, RECT{25, 75, 100, 112}, L"农田");
-    Button(hdc, kTabRanch, RECT{106, 75, 181, 112}, L"牧场");
-    Button(hdc, kTabWorkshop, RECT{187, 75, 282, 112}, L"饲料坊");
-    Button(hdc, kTabOrders, RECT{288, 75, 363, 112}, L"订单");
-    Button(hdc, kTabWarehouse, RECT{369, 75, 444, 112}, L"仓库");
-    Button(hdc, kTabShop, RECT{450, 75, 525, 112}, L"商店");
-    Button(hdc, kTabUnlock, RECT{531, 75, 606, 112}, L"解锁");
-    Button(hdc, kTabSave, RECT{612, 75, 687, 112}, L"存档");
-    Button(hdc, kTick, RECT{735, 75, 810, 112}, L"+2分");
-    Button(hdc, kPause, RECT{816, 75, 891, 112}, L"暂停");
-    Button(hdc, kSpeed1, RECT{897, 75, 957, 112}, L"1x");
-    Button(hdc, kSpeed2, RECT{963, 75, 1023, 112}, L"2x");
-    Button(hdc, kSpeed4, RECT{1029, 75, 1089, 112}, L"4x");
+    const COLORREF parchment = RGB(255, 241, 205);
+    const COLORREF parchment_active = RGB(255, 249, 226);
+    const COLORREF wood = RGB(121, 74, 35);
+    const COLORREF wood_mid = RGB(173, 108, 50);
+    const COLORREF text_dark = RGB(64, 43, 24);
+    const COLORREF text_light = RGB(255, 247, 218);
+    const COLORREF green = RGB(92, 148, 45);
+    const COLORREF blue = RGB(70, 126, 162);
+    const TimeSnapshot time = game_.Time().Snapshot();
+
+    auto Frame = [&](RECT rect, COLORREF color) {
+        HBRUSH brush = CreateSolidBrush(color);
+        FrameRect(hdc, &rect, brush);
+        DeleteObject(brush);
+    };
+    auto DrawTab = [&](int id, Screen tab_screen, RECT rect, const std::wstring& label,
+                       const std::wstring& icon_key) {
+        const bool selected = screen_ == tab_screen;
+        buttons_.push_back(UiButton{rect, id});
+        Fill(hdc, rect, selected ? parchment_active : wood_mid);
+        Frame(rect, selected ? RGB(214, 157, 43) : wood);
+        if (selected) {
+            Fill(hdc, RECT{rect.left + 2, rect.bottom - 5, rect.right - 2, rect.bottom - 2},
+                 green);
+        }
+        DrawTextureOrFill(hdc, icon_key,
+                          RECT{rect.left + 7, rect.top + 8, rect.left + 27, rect.top + 28},
+                          selected ? RGB(224, 190, 107) : RGB(204, 154, 84));
+        SetTextColor(hdc, selected ? text_dark : text_light);
+        Text(hdc, rect.left + 31, rect.top + 9, label);
+    };
+    auto ControlButton = [&](int id, RECT rect, const std::wstring& label, bool selected,
+                             COLORREF selected_color) {
+        buttons_.push_back(UiButton{rect, id});
+        Fill(hdc, rect, selected ? selected_color : parchment);
+        Frame(rect, selected ? wood : RGB(157, 111, 61));
+        SetTextColor(hdc, selected ? text_light : text_dark);
+        Text(hdc, rect.left + 10, rect.top + 9, label);
+    };
+
+    HFONT navigation_font =
+        CreateFontW(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                    DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
+    HGDIOBJ old_font = SelectObject(hdc, navigation_font);
+
+    DrawTab(kTabFarm, Screen::Farm, RECT{18, 73, 95, 114}, L"农田", L"soil");
+    DrawTab(kTabRanch, Screen::Ranch, RECT{100, 73, 177, 114}, L"牧场",
+            L"animal_chicken_idle");
+    DrawTab(kTabWorkshop, Screen::Workshop, RECT{182, 73, 279, 114}, L"饲料坊",
+            L"building_feed_mill");
+    DrawTab(kTabOrders, Screen::Orders, RECT{284, 73, 361, 114}, L"订单", L"order_card");
+    DrawTab(kTabWarehouse, Screen::Warehouse, RECT{366, 73, 443, 114}, L"仓库",
+            L"building_warehouse");
+    DrawTab(kTabShop, Screen::Shop, RECT{448, 73, 525, 114}, L"商店", L"building_shop");
+    DrawTab(kTabUnlock, Screen::Unlock, RECT{530, 73, 607, 114}, L"解锁", L"seed_corn");
+    DrawTab(kTabSave, Screen::Save, RECT{612, 73, 689, 114}, L"存档",
+            L"inventory_slot");
+
+    RECT control_panel{718, 69, 1098, 118};
+    Fill(hdc, control_panel, RGB(241, 219, 174));
+    Frame(control_panel, wood);
+    ControlButton(kTick, RECT{728, 75, 798, 112}, L"+2分", false, green);
+    ControlButton(kPause, RECT{804, 75, 874, 112}, time.paused ? L"继续" : L"暂停",
+                  time.paused, RGB(177, 91, 61));
+    ControlButton(kSpeed1, RECT{884, 75, 946, 112}, L"1x",
+                  !time.paused && time.speed == GameSpeed::Normal, blue);
+    ControlButton(kSpeed2, RECT{950, 75, 1012, 112}, L"2x",
+                  !time.paused && time.speed == GameSpeed::Fast, blue);
+    ControlButton(kSpeed4, RECT{1016, 75, 1088, 112}, L"4x",
+                  !time.paused && time.speed == GameSpeed::VeryFast, blue);
+
+    SelectObject(hdc, old_font);
+    DeleteObject(navigation_font);
+    SetTextColor(hdc, RGB(58, 54, 39));
 }
 
 void FarmWindow::DrawFarm(HDC hdc) {
-    Text(hdc, 40, 130, L"农田地块");
     const auto plots = game_.Planting().View(game_.Time().CurrentTick());
-    for (std::size_t i = 0; i < plots.size(); ++i) {
-        const int row = static_cast<int>(i) / 6;
-        const int col = static_cast<int>(i) % 6;
-        RECT r{40 + col * 80, 165 + row * 80, 105 + col * 80, 230 + row * 80};
-        const std::wstring ground =
-            plots[i].water == PlotWaterState::Watered ? L"soil_wet" : L"soil";
-        DrawTextureOrFill(hdc, ground, r, RGB(139, 94, 52));
-        if (plots[i].state != PlotState::Idle) {
-            RECT crop_rect{r.left + 9, r.top + 7, r.right - 9, r.bottom - 14};
-            DrawTextureOrFill(hdc, CropTextureKey(plots[i].crop, CropStage(plots[i])), crop_rect,
-                              plots[i].state == PlotState::Mature ? RGB(237, 190, 67)
-                                                                  : RGB(136, 170, 69));
+
+    DrawTextureOrFill(hdc, L"wood_card", RECT{25, 122, 525, 154}, RGB(250, 242, 214));
+    std::wstringstream title;
+    title << L"农田  " << plots.size() << L"/" << kMaxPlotCount << L"    点击地块后在右侧操作";
+    Text(hdc, 40, 130, title.str());
+
+    for (int i = 0; i < kMaxPlotCount; ++i) {
+        const int row = i / kFarmPlotColumns;
+        const int col = i % kFarmPlotColumns;
+        RECT r{kFarmPlotLeft + col * kFarmPlotStep, kFarmPlotTop + row * kFarmPlotStep,
+               kFarmPlotLeft + col * kFarmPlotStep + kFarmPlotSize,
+               kFarmPlotTop + row * kFarmPlotStep + kFarmPlotSize};
+
+        if (i >= static_cast<int>(plots.size())) {
+            Fill(hdc, r, RGB(104, 148, 78));
+            SetTextColor(hdc, RGB(238, 232, 196));
+            std::wstringstream locked_number;
+            locked_number << i + 1;
+            Text(hdc, r.left + 5, r.top + 4, locked_number.str());
+            Text(hdc, r.left + 17, r.top + 28, L"锁定");
+            SetTextColor(hdc, RGB(58, 54, 39));
+            continue;
         }
-        if (static_cast<int>(i) == selected_plot_) {
-            HBRUSH border = CreateSolidBrush(RGB(40, 40, 40));
-            FrameRect(hdc, &r, border);
+
+        const PlotView& plot = plots[static_cast<std::size_t>(i)];
+        const std::wstring ground =
+            plot.water == PlotWaterState::Watered ? L"soil_wet" : L"soil";
+        DrawTextureOrFill(hdc, ground, r, RGB(139, 94, 52));
+        if (plot.state != PlotState::Idle) {
+            RECT crop_rect{r.left + 9, r.top + 7, r.right - 9, r.bottom - 14};
+            DrawTextureOrFill(hdc, CropTextureKey(plot.crop, CropStage(plot)), crop_rect,
+                              plot.state == PlotState::Mature ? RGB(237, 190, 67)
+                                                              : RGB(136, 170, 69));
+        }
+
+        const bool selected = i == selected_plot_;
+        const bool mature = plot.state == PlotState::Mature;
+        if (selected || mature) {
+            HBRUSH border =
+                CreateSolidBrush(selected ? RGB(255, 222, 72) : RGB(242, 176, 48));
+            RECT border_rect = r;
+            FrameRect(hdc, &border_rect, border);
+            if (selected) {
+                InflateRect(&border_rect, -2, -2);
+                FrameRect(hdc, &border_rect, border);
+            }
             DeleteObject(border);
         }
-        std::wstringstream ss;
-        ss << i;
-        if (plots[i].state != PlotState::Idle) {
-            ss << L" " << ItemName(plots[i].crop);
+
+        RECT number_badge{r.left + 3, r.top + 3, r.left + 23, r.top + 21};
+        Fill(hdc, number_badge, selected ? RGB(255, 224, 94) : RGB(250, 242, 214));
+        std::wstringstream number;
+        number << i + 1;
+        Text(hdc, number_badge.left + 5, number_badge.top + 1, number.str());
+
+        if (plot.state == PlotState::Idle) {
+            SetTextColor(hdc, RGB(255, 244, 207));
+            Text(hdc, r.left + 17, r.top + 40, L"空闲");
+            SetTextColor(hdc, RGB(58, 54, 39));
+        } else if (plot.state == PlotState::Mature) {
+            RECT ready_badge{r.left + 5, r.bottom - 21, r.right - 5, r.bottom - 4};
+            Fill(hdc, ready_badge, RGB(255, 224, 94));
+            Text(hdc, ready_badge.left + 10, ready_badge.top, L"成熟");
+        } else if (plot.remaining_ticks > 0) {
+            RECT time_badge{r.left + 5, r.bottom - 21, r.right - 5, r.bottom - 4};
+            Fill(hdc, time_badge, RGB(250, 242, 214));
+            std::wstringstream remaining;
+            remaining << plot.remaining_ticks * kGameMinutesPerTick << L"分";
+            Text(hdc, time_badge.left + 8, time_badge.top, remaining.str());
         }
-        Text(hdc, r.left + 5, r.top + 5, ss.str());
-        if (plots[i].remaining_ticks > 0) {
-            std::wstringstream rt;
-            rt << plots[i].remaining_ticks * kGameMinutesPerTick << L"分";
-            Text(hdc, r.left + 13, r.bottom - 22, rt.str());
+
+        if (plot.water == PlotWaterState::Watered) {
+            SetTextColor(hdc, RGB(215, 240, 255));
+            Text(hdc, r.right - 20, r.top + 3, L"水");
+        }
+        if (plot.fertilized) {
+            SetTextColor(hdc, RGB(255, 235, 153));
+            Text(hdc, r.right - 20, r.top + 22, L"肥");
+        }
+        SetTextColor(hdc, RGB(58, 54, 39));
+    }
+
+    const COLORREF text_dark = RGB(65, 44, 25);
+    const COLORREF text_muted = RGB(116, 89, 58);
+    const COLORREF wood_dark = RGB(121, 75, 36);
+    const COLORREF panel_fill = RGB(255, 241, 205);
+    const COLORREF disabled_fill = RGB(184, 171, 142);
+    DrawTextureOrFill(hdc, L"wood_card", RECT{545, 122, 950, 540}, panel_fill);
+
+    auto Frame = [&](RECT rect, COLORREF color) {
+        HBRUSH brush = CreateSolidBrush(color);
+        FrameRect(hdc, &rect, brush);
+        DeleteObject(brush);
+    };
+    HFONT action_font =
+        CreateFontW(17, 0, 0, 0, FW_MEDIUM, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                    DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
+    auto FarmAction = [&](int id, RECT rect, const std::wstring& label,
+                          const std::wstring& icon, COLORREF color, bool enabled) {
+        if (enabled) {
+            buttons_.push_back(UiButton{rect, id});
+        }
+        RECT shadow{rect.left + 2, rect.top + 3, rect.right + 2, rect.bottom + 3};
+        Fill(hdc, shadow, RGB(117, 75, 39));
+        Fill(hdc, rect, enabled ? color : disabled_fill);
+        Frame(rect, enabled ? wood_dark : RGB(132, 123, 102));
+        RECT icon_rect{rect.left + 7, rect.top + 7, rect.left + 33, rect.bottom - 7};
+        DrawTextureOrFill(hdc, icon, icon_rect,
+                          enabled ? RGB(255, 236, 184) : RGB(203, 194, 171));
+        HGDIOBJ old_action_font = SelectObject(hdc, action_font);
+        SetTextColor(hdc, enabled ? RGB(255, 250, 230) : RGB(111, 103, 86));
+        Text(hdc, rect.left + 39, rect.top + 9, label);
+        SetTextColor(hdc, text_dark);
+        SelectObject(hdc, old_action_font);
+    };
+
+    HFONT heading_font =
+        CreateFontW(21, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                    DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
+    HGDIOBJ old_font = SelectObject(hdc, heading_font);
+    SetTextColor(hdc, text_dark);
+    Text(hdc, 570, 150, L"土地管理");
+    SelectObject(hdc, old_font);
+    DeleteObject(heading_font);
+
+    const PlotView* selected = nullptr;
+    if (selected_plot_ >= 0 && selected_plot_ < static_cast<int>(plots.size())) {
+        selected = &plots[static_cast<std::size_t>(selected_plot_)];
+    }
+    RECT selected_badge{565, 180, 930, 213};
+    Fill(hdc, selected_badge, RGB(255, 248, 224));
+    Frame(selected_badge, RGB(197, 151, 84));
+    std::wstringstream selected_info;
+    if (selected == nullptr) {
+        selected_info << L"请先选择一块已解锁土地";
+    } else {
+        selected_info << L"第 " << selected_plot_ + 1 << L" 块    ";
+        if (selected->state == PlotState::Idle) {
+            selected_info << L"空闲，可播种";
+        } else if (selected->state == PlotState::Mature) {
+            selected_info << ItemName(selected->crop) << L"成熟，可收获";
+        } else {
+            selected_info << ItemName(selected->crop) << L"生长中";
         }
     }
-    Text(hdc, 570, 145, L"选中地块操作");
-    Button(hdc, kPlantWheat, RECT{570, 185, 720, 223}, L"种小麦");
-    Button(hdc, kPlantCorn, RECT{570, 231, 720, 269}, L"种玉米");
-    Button(hdc, kPlantCarrot, RECT{570, 277, 720, 315}, L"种胡萝卜");
-    Button(hdc, kPlantTomato, RECT{570, 323, 720, 361}, L"种番茄");
-    Button(hdc, kWater, RECT{750, 185, 900, 223}, L"浇水");
-    Button(hdc, kFertilize, RECT{750, 231, 900, 269}, L"施肥");
-    Button(hdc, kHarvest, RECT{750, 277, 900, 315}, L"收割");
-    Button(hdc, kExpand, RECT{750, 323, 900, 361}, L"购买土地");
+    Text(hdc, 579, 187, selected_info.str());
+
+    const bool can_plant = selected != nullptr && selected->state == PlotState::Idle;
+    const bool can_tend = selected != nullptr && selected->state == PlotState::Growing;
+    const bool can_harvest = selected != nullptr && selected->state == PlotState::Mature;
+
+    SetTextColor(hdc, text_muted);
+    Text(hdc, 566, 222, L"播种");
+    FarmAction(kPlantWheat, RECT{565, 245, 650, 285}, L"小麦", L"seed_wheat",
+               RGB(207, 139, 54), can_plant);
+    FarmAction(kPlantCorn, RECT{658, 245, 743, 285}, L"玉米", L"seed_corn",
+               RGB(207, 139, 54), can_plant);
+    FarmAction(kPlantCarrot, RECT{751, 245, 836, 285}, L"胡萝卜", L"seed_carrot",
+               RGB(207, 139, 54), can_plant);
+    FarmAction(kPlantTomato, RECT{844, 245, 929, 285}, L"番茄", L"seed_tomato",
+               RGB(207, 139, 54), can_plant);
+
+    SetTextColor(hdc, text_muted);
+    Text(hdc, 566, 297, L"土地养护");
+    FarmAction(kWater, RECT{565, 320, 743, 362}, L"浇水", L"weather_rainy",
+               RGB(75, 145, 177),
+               can_tend && selected->water == PlotWaterState::Dry);
+    FarmAction(kFertilize, RECT{751, 320, 929, 362}, L"施肥", L"item_fertilizer",
+               RGB(195, 149, 48), can_tend && !selected->fertilized);
+    FarmAction(kHarvest, RECT{565, 377, 929, 421}, L"收割当前作物", L"item_wheat",
+               RGB(78, 143, 45), can_harvest);
+
+    HBRUSH divider = CreateSolidBrush(RGB(205, 163, 96));
+    RECT divider_rect{565, 439, 929, 440};
+    FillRect(hdc, &divider_rect, divider);
+    DeleteObject(divider);
+
+    const bool can_expand = static_cast<int>(plots.size()) < kMaxPlotCount;
+    std::wstringstream expansion;
+    if (can_expand) {
+        const int extra = static_cast<int>(plots.size()) - kInitialPlotCount;
+        expansion << L"扩建土地    " << kPlotExpansionBaseCost + extra * 20 << L" 金币";
+    } else {
+        expansion << L"土地已扩建至上限";
+    }
+    SetTextColor(hdc, text_muted);
+    Text(hdc, 566, 453, expansion.str());
+    FarmAction(kExpand, RECT{740, 478, 929, 518},
+               can_expand ? L"购买下一块" : L"已达上限", L"soil", RGB(164, 103, 48),
+               can_expand);
+    DeleteObject(action_font);
+    SetTextColor(hdc, text_dark);
 }
 
 void FarmWindow::DrawRanch(HDC hdc) {
-    Text(hdc, 40, 135, L"牧场设施");
-    int y = 175;
-    for (const RanchFacilityView& facility : game_.Ranch().FacilityViews()) {
-        RECT icon{45, y - 8, 93, y + 40};
-        DrawTextureOrFill(hdc, FacilityTextureKey(facility.kind), icon, RGB(190, 134, 84));
-        std::wstringstream ss;
-        ss << FacilityName(facility.kind) << L" #" << facility.id << L"  动物 "
-           << facility.animal_count << L"/" << facility.capacity << L"  空闲 "
-           << facility.idle_count << L"  生产中 " << facility.producing_count << L"  可收 "
-           << facility.ready_count;
-        Text(hdc, 105, y, ss.str());
-        const auto animals = game_.Ranch().AnimalViews(facility.id, game_.Time().CurrentTick());
-        int animal_x = 105;
-        for (const AnimalView& animal : animals) {
-            RECT animal_rect{animal_x, y + 28, animal_x + 44, y + 72};
-            DrawTextureOrFill(hdc, AnimalTextureKey(animal.kind, animal.state), animal_rect,
-                              RGB(226, 196, 126));
-            if (animal.state == AnimalState::Ready) {
-                Text(hdc, animal_x + 4, y + 74, L"可收");
+    const COLORREF parchment = RGB(255, 240, 199);
+    const COLORREF parchment_light = RGB(255, 248, 222);
+    const COLORREF text_dark = RGB(66, 44, 25);
+    const COLORREF text_muted = RGB(116, 86, 54);
+    const COLORREF wood_dark = RGB(105, 65, 30);
+    const COLORREF wood_mid = RGB(157, 98, 43);
+    const COLORREF grass = RGB(132, 176, 61);
+    const COLORREF grass_light = RGB(164, 197, 78);
+    const COLORREF fence = RGB(156, 100, 49);
+    const COLORREF action_green = RGB(77, 147, 39);
+    const COLORREF disabled_fill = RGB(177, 163, 132);
+    SetTextColor(hdc, text_dark);
+
+    auto Frame = [&](RECT rect, COLORREF color) {
+        HBRUSH brush = CreateSolidBrush(color);
+        FrameRect(hdc, &rect, brush);
+        DeleteObject(brush);
+    };
+    auto RanchButton = [&](int id, RECT rect, const std::wstring& label, bool enabled = true,
+                           COLORREF color = RGB(77, 147, 39)) {
+        if (enabled) {
+            buttons_.push_back(UiButton{rect, id});
+        }
+        RECT shadow{rect.left + 2, rect.top + 3, rect.right + 2, rect.bottom + 3};
+        Fill(hdc, shadow, RGB(105, 68, 35));
+        Fill(hdc, rect, enabled ? color : disabled_fill);
+        Frame(rect, enabled ? wood_dark : RGB(117, 108, 88));
+        SetTextColor(hdc, enabled ? RGB(255, 250, 226) : RGB(226, 217, 194));
+        Text(hdc, rect.left + 12, rect.top + 8, label);
+        SetTextColor(hdc, text_dark);
+    };
+    auto SceneAnimalKey = [&](AnimalKind kind) -> std::wstring {
+        switch (kind) {
+            case AnimalKind::Chicken:
+                return L"animal_chicken_scene";
+            case AnimalKind::Cow:
+                return L"animal_cow_scene";
+            case AnimalKind::Sheep:
+                return L"animal_sheep_scene";
+            case AnimalKind::Pig:
+                return L"animal_pig_idle";
+        }
+        return L"animal_unknown";
+    };
+    auto DrawFence = [&](RECT rect) {
+        Fill(hdc, RECT{rect.left, rect.top, rect.right, rect.top + 5}, fence);
+        Fill(hdc, RECT{rect.left, rect.bottom - 5, rect.right, rect.bottom}, fence);
+        for (int x = rect.left + 8; x < rect.right; x += 34) {
+            Fill(hdc, RECT{x, rect.top - 4, x + 7, rect.top + 13}, RGB(128, 78, 38));
+            Fill(hdc, RECT{x, rect.bottom - 13, x + 7, rect.bottom + 4}, RGB(128, 78, 38));
+        }
+    };
+    auto DrawCounter = [&](int x, const std::wstring& icon, const std::wstring& label,
+                           int count) {
+        DrawTextureOrFill(hdc, icon, RECT{x, 136, x + 28, 164}, RGB(236, 192, 91));
+        Text(hdc, x + 33, 139, label + L" " + std::to_wstring(count));
+    };
+
+    std::vector<RanchFacilityView> facilities = game_.Ranch().FacilityViews();
+    if (facilities.empty()) {
+        selected_ranch_facility_id_ = -1;
+        ranch_facility_page_ = 0;
+    } else {
+        bool selected_exists = false;
+        for (const RanchFacilityView& facility : facilities) {
+            selected_exists = selected_exists || facility.id == selected_ranch_facility_id_;
+        }
+        if (!selected_exists) {
+            selected_ranch_facility_id_ = facilities.front().id;
+        }
+    }
+
+    const int page_count =
+        std::max(1, (static_cast<int>(facilities.size()) + kRanchFacilitiesPerPage - 1) /
+                        kRanchFacilitiesPerPage);
+    ranch_facility_page_ = std::max(0, std::min(ranch_facility_page_, page_count - 1));
+
+    Fill(hdc, RECT{35, 128, 200, 168}, parchment);
+    Frame(RECT{35, 128, 200, 168}, wood_dark);
+    HFONT title_font =
+        CreateFontW(22, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                    DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
+    HGDIOBJ old_font = SelectObject(hdc, title_font);
+    Text(hdc, 55, 137, L"牧场生活");
+    SelectObject(hdc, old_font);
+    DeleteObject(title_font);
+
+    Fill(hdc, RECT{215, 128, 872, 168}, parchment);
+    Frame(RECT{215, 128, 872, 168}, wood_dark);
+    DrawCounter(230, L"item_feed", L"鸡料", game_.Player().ItemCount(ItemId::ChickenFeed));
+    DrawCounter(350, L"item_feed", L"牛料", game_.Player().ItemCount(ItemId::CowFeed));
+    DrawCounter(470, L"item_egg", L"鸡蛋", game_.Player().ItemCount(ItemId::Egg));
+    DrawCounter(590, L"item_milk", L"牛奶", game_.Player().ItemCount(ItemId::Milk));
+    DrawCounter(710, L"item_wool", L"羊毛", game_.Player().ItemCount(ItemId::Wool));
+
+    RanchButton(kRanchPagePrevious, RECT{885, 128, 935, 168}, L"<",
+                ranch_facility_page_ > 0, RGB(170, 112, 53));
+    Fill(hdc, RECT{942, 128, 997, 168}, parchment_light);
+    Frame(RECT{942, 128, 997, 168}, wood_dark);
+    Text(hdc, 951, 138,
+         std::to_wstring(ranch_facility_page_ + 1) + L"/" + std::to_wstring(page_count));
+    RanchButton(kRanchPageNext, RECT{1004, 128, 1055, 168}, L">",
+                ranch_facility_page_ + 1 < page_count, RGB(170, 112, 53));
+
+    const int first_facility = ranch_facility_page_ * kRanchFacilitiesPerPage;
+    for (int slot = 0; slot < kRanchFacilitiesPerPage; ++slot) {
+        const int facility_index = first_facility + slot;
+        const int x = 35 + slot * 350;
+        RECT card{x, 180, x + 330, 326};
+        Fill(hdc, card, grass);
+        Fill(hdc, RECT{x + 4, 184, x + 326, 215}, wood_mid);
+        Fill(hdc, RECT{x + 4, 278, x + 326, 322}, RGB(191, 151, 82));
+        DrawFence(RECT{x + 8, 218, x + 322, 313});
+
+        if (facility_index >= static_cast<int>(facilities.size())) {
+            Frame(card, RGB(143, 98, 53));
+            SetTextColor(hdc, RGB(255, 246, 214));
+            Text(hdc, x + 18, 188, L"待建设的围栏");
+            SetTextColor(hdc, text_muted);
+            Text(hdc, x + 103, 246, L"空设施位");
+            Text(hdc, x + 75, 286, L"建造牛棚或羊圈后开放");
+            SetTextColor(hdc, text_dark);
+            continue;
+        }
+
+        const RanchFacilityView& facility =
+            facilities[static_cast<std::size_t>(facility_index)];
+        const bool is_selected = facility.id == selected_ranch_facility_id_;
+        buttons_.push_back(UiButton{card, kSelectRanchFacilityBase + slot});
+        Frame(card, is_selected ? RGB(255, 209, 69) : wood_dark);
+        if (is_selected) {
+            RECT inner = card;
+            InflateRect(&inner, -3, -3);
+            Frame(inner, RGB(255, 234, 121));
+        }
+
+        SetTextColor(hdc, RGB(255, 247, 218));
+        std::wstringstream facility_title;
+        facility_title << FacilityName(facility.kind) << L" #" << facility.id << L"   "
+                       << facility.animal_count << L"/" << facility.capacity;
+        Text(hdc, x + 14, 188, facility_title.str());
+        DrawTextureOrFill(hdc, FacilityTextureKey(facility.kind),
+                          RECT{x + 14, 224, x + 82, 286}, RGB(175, 105, 52));
+
+        const AnimalKind kind = FacilityAnimalKind(facility.kind);
+        const auto card_animals =
+            game_.Ranch().AnimalViews(facility.id, game_.Time().CurrentTick());
+        const int visible_count = std::min(3, static_cast<int>(card_animals.size()));
+        for (int i = 0; i < visible_count; ++i) {
+            const int animal_x = x + 95 + i * 68;
+            const int animal_width = kind == AnimalKind::Chicken ? 48 : 62;
+            DrawTextureOrFill(hdc, SceneAnimalKey(kind),
+                              RECT{animal_x, 224, animal_x + animal_width, 283},
+                              RGB(240, 222, 174));
+        }
+        SetTextColor(hdc, text_dark);
+        std::wstringstream state;
+        state << L"待喂 " << facility.idle_count << L"   生产 " << facility.producing_count
+              << L"   可收 " << facility.ready_count;
+        Text(hdc, x + 18, 293, state.str());
+    }
+
+    const RanchFacilityView* selected = nullptr;
+    for (const RanchFacilityView& facility : facilities) {
+        if (facility.id == selected_ranch_facility_id_) {
+            selected = &facility;
+            break;
+        }
+    }
+
+    RECT scene{35, 342, 700, 610};
+    Fill(hdc, scene, grass_light);
+    Fill(hdc, RECT{39, 346, 696, 383}, wood_mid);
+    Fill(hdc, RECT{39, 540, 696, 606}, RGB(191, 151, 82));
+    Frame(scene, wood_dark);
+    DrawFence(RECT{48, 395, 686, 585});
+
+    if (selected == nullptr) {
+        SetTextColor(hdc, RGB(255, 246, 214));
+        Text(hdc, 55, 352, L"当前设施");
+        SetTextColor(hdc, text_muted);
+        Text(hdc, 275, 470, L"暂无牧场设施");
+    } else {
+        const AnimalKind animal_kind = FacilityAnimalKind(selected->kind);
+        const auto animals =
+            game_.Ranch().AnimalViews(selected->id, game_.Time().CurrentTick());
+        SetTextColor(hdc, RGB(255, 246, 214));
+        Text(hdc, 55, 352,
+             std::wstring(FacilityName(selected->kind)) + L" #" +
+                 std::to_wstring(selected->id) + L"    " +
+                 std::to_wstring(selected->animal_count) + L"/" +
+                 std::to_wstring(selected->capacity));
+        DrawTextureOrFill(hdc, FacilityTextureKey(selected->kind), RECT{55, 402, 170, 510},
+                          RGB(179, 111, 57));
+
+        const int slot_width = 150;
+        for (int slot = 0; slot < selected->capacity; ++slot) {
+            const int x = 190 + slot * slot_width;
+            if (slot >= static_cast<int>(animals.size())) {
+                Frame(RECT{x + 8, 420, x + 130, 548}, RGB(174, 125, 69));
+                SetTextColor(hdc, RGB(116, 86, 54));
+                Text(hdc, x + 44, 472, L"空位");
+                continue;
             }
-            animal_x += 50;
-            if (animal_x > 470) {
-                break;
+
+            const AnimalView& animal = animals[static_cast<std::size_t>(slot)];
+            const int sprite_width = animal.kind == AnimalKind::Chicken ? 86 : 122;
+            DrawTextureOrFill(hdc, SceneAnimalKey(animal.kind),
+                              RECT{x + 18, 405, x + 18 + sprite_width, 510},
+                              RGB(244, 224, 171));
+
+            RECT badge{x + 13, 515, x + 132, 544};
+            COLORREF badge_color = RGB(183, 125, 51);
+            std::wstring badge_text = L"待喂";
+            if (animal.state == AnimalState::Ready) {
+                badge_color = RGB(80, 150, 43);
+                badge_text = L"可收获";
+            } else if (animal.state == AnimalState::Producing) {
+                badge_color = RGB(70, 139, 178);
+                badge_text = L"生产中 " +
+                             std::to_wstring(animal.remaining_ticks * kGameMinutesPerTick) +
+                             L"分";
+            }
+            Fill(hdc, badge, badge_color);
+            Frame(badge, wood_dark);
+            SetTextColor(hdc, RGB(255, 249, 224));
+            Text(hdc, badge.left + 11, badge.top + 4, badge_text);
+            if (animal.state == AnimalState::Ready) {
+                DrawTextureOrFill(hdc, ItemTextureKey(AnimalProduct(animal.kind)),
+                                  RECT{x + 101, 480, x + 129, 508}, RGB(240, 195, 79));
             }
         }
-        y += 94;
+
+        SetTextColor(hdc, text_dark);
+        Text(hdc, 55, 566,
+             std::wstring(AnimalName(animal_kind)) + L"使用" +
+                 ItemName(AnimalFeed(animal_kind)) + L"，产出" +
+                 ItemName(AnimalProduct(animal_kind)));
     }
-    Text(hdc, 600, 145, L"牧场操作");
-    Button(hdc, kBuildCowBarn, RECT{600, 185, 740, 223}, L"建牛棚");
-    Button(hdc, kBuildSheepPen, RECT{755, 185, 895, 223}, L"建羊圈");
-    Button(hdc, kBuyChicken, RECT{600, 240, 740, 278}, L"购买鸡");
-    Button(hdc, kBuyCow, RECT{755, 240, 895, 278}, L"购买牛");
-    Button(hdc, kBuySheep, RECT{910, 240, 1050, 278}, L"购买羊");
-    Button(hdc, kFeedAll, RECT{600, 295, 740, 333}, L"全部喂食");
-    Button(hdc, kHarvestAll, RECT{755, 295, 895, 333}, L"全部收获");
-    Text(hdc, 600, 365, L"饲料：鸡吃鸡饲料；牛和羊吃牛饲料。");
-    Text(hdc, 600, 400, L"产物：鸡蛋、牛奶、羊毛可出售或进入订单。");
+
+    RECT controls{715, 342, 1075, 610};
+    Fill(hdc, controls, parchment);
+    Frame(controls, wood_dark);
+    Fill(hdc, RECT{719, 346, 1071, 383}, wood_mid);
+    SetTextColor(hdc, RGB(255, 246, 214));
+    Text(hdc, 735, 352, L"当前设施经营");
+    SetTextColor(hdc, text_dark);
+
+    bool any_idle = false;
+    bool any_ready = false;
+    for (const RanchFacilityView& facility : facilities) {
+        any_idle = any_idle || facility.idle_count > 0;
+        any_ready = any_ready || facility.ready_count > 0;
+    }
+
+    if (selected != nullptr) {
+        const AnimalKind animal_kind = FacilityAnimalKind(selected->kind);
+        const int animal_cost = AnimalPurchaseCost(animal_kind);
+        const bool animal_unlocked = game_.Player().IsUnlocked(AnimalUnlock(animal_kind));
+        const bool has_capacity = selected->animal_count < selected->capacity;
+        const bool can_buy =
+            animal_unlocked && has_capacity && game_.Player().Gold() >= animal_cost;
+        std::wstring buy_label = L"购买" + std::wstring(AnimalName(animal_kind)) + L"  " +
+                                 std::to_wstring(animal_cost) + L"金币";
+        if (!animal_unlocked) {
+            buy_label = std::wstring(AnimalName(animal_kind)) + L"未解锁";
+        } else if (!has_capacity) {
+            buy_label = std::wstring(FacilityName(selected->kind)) + L"已满";
+        }
+        const int buy_button = animal_kind == AnimalKind::Chicken
+                                   ? kBuyChicken
+                                   : animal_kind == AnimalKind::Cow ? kBuyCow : kBuySheep;
+        RanchButton(buy_button, RECT{735, 400, 1055, 440}, buy_label, can_buy,
+                    RGB(174, 108, 45));
+        const int feed_count = game_.Player().ItemCount(AnimalFeed(animal_kind));
+        RanchButton(kFeedSelected, RECT{735, 450, 890, 490}, L"喂食当前设施",
+                    selected->idle_count > 0 && feed_count > 0, RGB(78, 145, 42));
+        RanchButton(kHarvestSelected, RECT{900, 450, 1055, 490}, L"收获当前设施",
+                    selected->ready_count > 0, RGB(78, 145, 42));
+    }
+
+    RanchButton(kFeedAll, RECT{735, 510, 890, 548}, L"全牧场喂食", any_idle,
+                RGB(151, 105, 54));
+    RanchButton(kHarvestAll, RECT{900, 510, 1055, 548}, L"全牧场收获", any_ready,
+                RGB(151, 105, 54));
+
+    const bool cow_unlocked =
+        game_.Player().IsUnlocked(UnlockId::CowBarn) && game_.Player().Gold() >= 120;
+    const bool sheep_unlocked =
+        game_.Player().IsUnlocked(UnlockId::SheepPen) && game_.Player().Gold() >= 160;
+    RanchButton(kBuildCowBarn, RECT{735, 560, 890, 596},
+                game_.Player().IsUnlocked(UnlockId::CowBarn) ? L"建牛棚 120"
+                                                             : L"牛棚未解锁",
+                cow_unlocked, RGB(170, 112, 53));
+    RanchButton(kBuildSheepPen, RECT{900, 560, 1055, 596},
+                game_.Player().IsUnlocked(UnlockId::SheepPen) ? L"建羊圈 160"
+                                                              : L"羊圈未解锁",
+                sheep_unlocked, RGB(170, 112, 53));
+    SetTextColor(hdc, text_dark);
 }
 
 void FarmWindow::DrawWorkshop(HDC hdc) {
     const WorkshopView view = game_.Workshop().View();
-    Text(hdc, 40, 140, L"饲料坊");
-    DrawTextureOrFill(hdc, L"building_feed_mill", RECT{45, 175, 165, 295}, RGB(190, 134, 84));
-    std::wstringstream ss;
-    ss << L"队列 " << view.queue_count << L"/" << view.queue_capacity << L"   货架 "
-       << view.shelf_count << L"/" << view.shelf_capacity << L"   鸡饲料 "
-       << view.chicken_feed_shelf << L"   牛饲料 " << view.cow_feed_shelf << L"   当前剩余 "
-       << view.active_remaining_ticks * kGameMinutesPerTick << L" 分钟";
-    Text(hdc, 190, 180, ss.str());
-    DrawTextureOrFill(hdc, L"item_feed", RECT{190, 220, 238, 268}, RGB(226, 196, 126));
-    DrawTextureOrFill(hdc, L"item_wheat", RECT{265, 220, 313, 268}, RGB(226, 196, 126));
-    DrawTextureOrFill(hdc, L"item_corn", RECT{340, 220, 388, 268}, RGB(226, 196, 126));
-    DrawTextureOrFill(hdc, L"item_carrot", RECT{415, 220, 463, 268}, RGB(226, 196, 126));
-    Text(hdc, 190, 285, L"配方：小麦 x2 -> 鸡饲料；玉米 x2 + 胡萝卜 x1 -> 牛饲料");
-    Button(hdc, kMakeChickenFeed, RECT{190, 335, 345, 375}, L"鸡饲料 x1");
-    Button(hdc, kMakeChickenFeed3, RECT{360, 335, 515, 375}, L"鸡饲料 x3");
-    Button(hdc, kMakeCowFeed, RECT{530, 335, 685, 375}, L"牛饲料 x1");
-    Button(hdc, kClaimFeed, RECT{700, 335, 855, 375}, L"领取饲料");
+    const auto& queue = game_.Workshop().Queue();
+    const COLORREF panel_fill = RGB(255, 239, 198);
+    const COLORREF slot_fill = RGB(250, 225, 174);
+    const COLORREF text_dark = RGB(63, 43, 24);
+    const COLORREF wood_dark = RGB(105, 65, 30);
+    const COLORREF wood_mid = RGB(151, 94, 43);
+    const COLORREF action_green = RGB(86, 151, 34);
+    SetTextColor(hdc, text_dark);
+
+    auto Frame = [&](RECT rect, COLORREF color) {
+        HBRUSH brush = CreateSolidBrush(color);
+        FrameRect(hdc, &rect, brush);
+        DeleteObject(brush);
+    };
+    auto WorkshopButton = [&](int id, RECT rect, const std::wstring& label) {
+        buttons_.push_back(UiButton{rect, id});
+        Fill(hdc, rect, action_green);
+        Frame(rect, RGB(45, 91, 24));
+        SetTextColor(hdc, RGB(255, 250, 224));
+        Text(hdc, rect.left + 12, rect.top + 8, label);
+        SetTextColor(hdc, text_dark);
+    };
+    auto SectionHeader = [&](RECT rect, const std::wstring& label) {
+        Fill(hdc, rect, wood_mid);
+        Frame(rect, wood_dark);
+        SetTextColor(hdc, RGB(255, 246, 214));
+        Text(hdc, rect.left + 18, rect.top + 7, label);
+        SetTextColor(hdc, text_dark);
+    };
+
+    RECT title_bar{35, 130, 285, 168};
+    Fill(hdc, title_bar, RGB(255, 239, 198));
+    Frame(title_bar, wood_dark);
+    Text(hdc, 55, 140, L"饲料坊");
+
+    std::wstringstream materials;
+    materials << L"小麦 " << game_.Player().ItemCount(ItemId::Wheat) << L"    玉米 "
+              << game_.Player().ItemCount(ItemId::Corn) << L"    胡萝卜 "
+              << game_.Player().ItemCount(ItemId::Carrot);
+    RECT material_bar{300, 130, 720, 168};
+    Fill(hdc, material_bar, RGB(255, 239, 198));
+    Frame(material_bar, wood_dark);
+    Text(hdc, 320, 140, materials.str());
+
+    RECT workbench{45, 315, 1075, 610};
+    Fill(hdc, workbench, panel_fill);
+    Frame(workbench, wood_dark);
+    RECT inner_frame{49, 319, 1071, 606};
+    Frame(inner_frame, RGB(194, 132, 67));
+
+    Frame(RECT{382, 328, 383, 593}, RGB(194, 132, 67));
+    Frame(RECT{728, 328, 729, 593}, RGB(194, 132, 67));
+
+    SectionHeader(RECT{65, 330, 360, 365}, L"配方");
+    SectionHeader(RECT{402, 330, 708, 365},
+                  L"加工队列  " + std::to_wstring(view.queue_count) + L"/" +
+                      std::to_wstring(view.queue_capacity));
+    SectionHeader(RECT{748, 330, 1055, 365},
+                  L"成品货架  " + std::to_wstring(view.shelf_count) + L"/" +
+                      std::to_wstring(view.shelf_capacity));
+
+    RECT chicken_recipe{65, 380, 360, 462};
+    Fill(hdc, chicken_recipe, slot_fill);
+    Frame(chicken_recipe, RGB(180, 126, 69));
+    DrawTextureOrFill(hdc, L"item_wheat", RECT{78, 392, 118, 432}, RGB(226, 196, 126));
+    Text(hdc, 83, 435, L"x2");
+    Text(hdc, 127, 405, L"→");
+    DrawTextureOrFill(hdc, L"item_feed", RECT{150, 392, 190, 432}, RGB(226, 196, 126));
+    Text(hdc, 195, 394, L"鸡饲料");
+    Text(hdc, 195, 418, L"20 分钟");
+    WorkshopButton(kMakeChickenFeed, RECT{246, 385, 296, 423}, L"x1");
+    WorkshopButton(kMakeChickenFeed3, RECT{302, 385, 352, 423}, L"x3");
+
+    RECT cow_recipe{65, 478, 360, 575};
+    Fill(hdc, cow_recipe, slot_fill);
+    Frame(cow_recipe, RGB(180, 126, 69));
+    DrawTextureOrFill(hdc, L"item_corn", RECT{76, 490, 112, 526}, RGB(226, 196, 126));
+    Text(hdc, 80, 530, L"x2");
+    Text(hdc, 118, 501, L"+");
+    DrawTextureOrFill(hdc, L"item_carrot", RECT{137, 490, 173, 526}, RGB(226, 196, 126));
+    Text(hdc, 141, 530, L"x1");
+    Text(hdc, 179, 501, L"→");
+    DrawTextureOrFill(hdc, L"item_feed", RECT{198, 490, 234, 526}, RGB(226, 196, 126));
+    Text(hdc, 240, 490, L"牛饲料");
+    Text(hdc, 240, 514, L"32 分钟");
+    WorkshopButton(kMakeCowFeed, RECT{277, 532, 347, 568}, L"制作");
+
+    for (int i = 0; i < kFeedMillQueueCapacity; ++i) {
+        const int x = 407 + i * 100;
+        RECT slot{x, 392, x + 86, 500};
+        Fill(hdc, slot, i < static_cast<int>(queue.size()) ? slot_fill : RGB(239, 217, 177));
+        Frame(slot, RGB(167, 116, 66));
+        std::wstring slot_number = std::to_wstring(i + 1);
+        Text(hdc, x + 38, 374, slot_number);
+        if (i >= static_cast<int>(queue.size())) {
+            SetTextColor(hdc, RGB(117, 91, 62));
+            Text(hdc, x + 27, 435, L"空闲");
+            SetTextColor(hdc, text_dark);
+            continue;
+        }
+
+        const ProductionJob& job = queue[static_cast<std::size_t>(i)];
+        DrawTextureOrFill(hdc, L"item_feed", RECT{x + 18, 405, x + 68, 455},
+                          RGB(226, 196, 126));
+        Text(hdc, x + 16, 462, job.recipe == RecipeId::ChickenFeed ? L"鸡饲料" : L"牛饲料");
+    }
+
+    if (!queue.empty()) {
+        const ProductionJob& active = queue.front();
+        const int total_ticks =
+            active.recipe == RecipeId::ChickenFeed ? kChickenFeedTicks : kCowFeedTicks;
+        const int completed = std::max(0, total_ticks - active.remaining_ticks);
+        RECT progress_back{407, 520, 693, 536};
+        Fill(hdc, progress_back, RGB(117, 80, 45));
+        RECT progress_fill = progress_back;
+        progress_fill.right =
+            progress_back.left + (progress_back.right - progress_back.left) * completed /
+                                     std::max(1, total_ticks);
+        Fill(hdc, progress_fill, RGB(62, 166, 218));
+        Frame(progress_back, wood_dark);
+        std::wstringstream remaining;
+        remaining << L"当前任务剩余 " << active.remaining_ticks * kGameMinutesPerTick << L" 分钟";
+        Text(hdc, 407, 548, remaining.str());
+    } else {
+        SetTextColor(hdc, RGB(117, 91, 62));
+        Text(hdc, 407, 535, L"队列空闲，可选择左侧配方开始加工");
+        SetTextColor(hdc, text_dark);
+    }
+
+    std::vector<ItemId> shelf_items;
+    shelf_items.insert(shelf_items.end(), static_cast<std::size_t>(view.chicken_feed_shelf),
+                       ItemId::ChickenFeed);
+    shelf_items.insert(shelf_items.end(), static_cast<std::size_t>(view.cow_feed_shelf),
+                       ItemId::CowFeed);
+    for (int i = 0; i < kFeedMillShelfCapacity; ++i) {
+        const int x = 755 + i * 72;
+        RECT slot{x, 392, x + 62, 480};
+        Fill(hdc, slot, RGB(151, 99, 48));
+        Frame(slot, wood_dark);
+        if (i < static_cast<int>(shelf_items.size())) {
+            DrawTextureOrFill(hdc, L"item_feed", RECT{x + 9, 402, x + 53, 446},
+                              RGB(226, 196, 126));
+            Text(hdc, x + 10, 451,
+                 shelf_items[static_cast<std::size_t>(i)] == ItemId::ChickenFeed ? L"鸡料"
+                                                                                 : L"牛料");
+        } else {
+            SetTextColor(hdc, RGB(224, 188, 138));
+            Text(hdc, x + 23, 425, L"空");
+            SetTextColor(hdc, text_dark);
+        }
+    }
+
+    WorkshopButton(kClaimFeed, RECT{815, 505, 995, 548}, L"领取 1 个");
+    if (view.shelf_count >= view.shelf_capacity) {
+        SetTextColor(hdc, RGB(157, 63, 38));
+        Text(hdc, 790, 565, L"货架已满，生产暂停");
+    } else if (view.shelf_count == 0) {
+        SetTextColor(hdc, RGB(117, 91, 62));
+        Text(hdc, 815, 565, L"暂无可领取成品");
+    } else {
+        Text(hdc, 815, 565, L"领取后存入仓库");
+    }
+    SetTextColor(hdc, text_dark);
 }
 
 void FarmWindow::DrawOrders(HDC hdc) {
-    Text(hdc, 40, 135, L"订单");
     const auto& orders = game_.Orders().Orders();
-    for (std::size_t i = 0; i < orders.size(); ++i) {
-        const OrderData& order = orders[i];
-        const int y = 175 + static_cast<int>(i) * 80;
-        RECT card{40, y, 780, y + 60};
-        DrawTextureOrFill(hdc, L"order_card", card,
-                          selected_order_ == static_cast<int>(i) ? RGB(255, 230, 160)
-                                                                 : RGB(250, 242, 214));
-        DrawTextureOrFill(hdc, ItemTextureKey(order.item), RECT{55, y + 10, 95, y + 50},
-                          RGB(226, 196, 126));
-        std::wstringstream ss;
-        ss << L"槽位 " << i << L"  " << ItemName(order.item) << L" x" << order.quantity
-           << L"  奖励 " << order.reward_gold << L" 金币 +" << order.reward_exp << L" 经验";
-        if (order.state == OrderState::CoolingDown) {
-            ss << L"  冷却中";
+    const COLORREF panel_fill = RGB(255, 239, 198);
+    const COLORREF card_fill = RGB(250, 225, 174);
+    const COLORREF muted_fill = RGB(218, 207, 177);
+    const COLORREF text_dark = RGB(63, 43, 24);
+    const COLORREF text_muted = RGB(117, 91, 62);
+    const COLORREF wood_dark = RGB(105, 65, 30);
+    const COLORREF wood_mid = RGB(151, 94, 43);
+    const COLORREF action_green = RGB(86, 151, 34);
+    SetTextColor(hdc, text_dark);
+
+    auto Frame = [&](RECT rect, COLORREF color) {
+        HBRUSH brush = CreateSolidBrush(color);
+        FrameRect(hdc, &rect, brush);
+        DeleteObject(brush);
+    };
+    auto SectionHeader = [&](RECT rect, const std::wstring& label) {
+        Fill(hdc, rect, wood_mid);
+        Frame(rect, wood_dark);
+        SetTextColor(hdc, RGB(255, 246, 214));
+        Text(hdc, rect.left + 16, rect.top + 7, label);
+        SetTextColor(hdc, text_dark);
+    };
+    auto OrderButton = [&](int id, RECT rect, const std::wstring& label, bool enabled,
+                           bool primary) {
+        if (enabled) {
+            buttons_.push_back(UiButton{rect, id});
         }
-        Text(hdc, 110, y + 18, ss.str());
-        Button(hdc, kOrderBase + static_cast<int>(i), RECT{800, y + 10, 885, y + 48}, L"选择");
+        Fill(hdc, rect,
+             enabled ? (primary ? action_green : RGB(176, 112, 50)) : RGB(174, 158, 124));
+        Frame(rect, enabled ? (primary ? RGB(45, 91, 24) : RGB(123, 72, 33))
+                            : RGB(132, 119, 91));
+        SetTextColor(hdc, enabled ? RGB(255, 250, 224) : RGB(235, 228, 207));
+        Text(hdc, rect.left + 16, rect.top + 8, label);
+        SetTextColor(hdc, text_dark);
+    };
+
+    if (orders.empty()) {
+        selected_order_ = 0;
+    } else {
+        selected_order_ =
+            std::max(0, std::min(selected_order_, static_cast<int>(orders.size()) - 1));
     }
-    Button(hdc, kCompleteOrder, RECT{40, 520, 190, 560}, L"交付订单");
-    Button(hdc, kAbandonOrder, RECT{205, 520, 355, 560}, L"放弃订单");
+
+    int available_count = 0;
+    int deliverable_count = 0;
+    for (int i = 0; i < static_cast<int>(orders.size()); ++i) {
+        const OrderData& order = orders[static_cast<std::size_t>(i)];
+        if (order.state == OrderState::Available && !order.locked) {
+            ++available_count;
+        }
+        if (game_.Orders().CanDeliver(game_.Player(), i) &&
+            !game_.Player().IsItemLocked(order.item)) {
+            ++deliverable_count;
+        }
+    }
+
+    RECT title_bar{35, 130, 235, 168};
+    Fill(hdc, title_bar, panel_fill);
+    Frame(title_bar, wood_dark);
+    Text(hdc, 55, 140, L"乡村订单站");
+
+    std::wstringstream overview;
+    overview << L"可接订单 " << available_count << L"    可立即交付 " << deliverable_count
+             << L"    完成交付后 8 分钟刷新，放弃后 16 分钟刷新";
+    RECT overview_bar{250, 130, 1060, 168};
+    Fill(hdc, overview_bar, panel_fill);
+    Frame(overview_bar, wood_dark);
+    Text(hdc, 270, 140, overview.str());
+
+    RECT order_desk{45, 315, 1075, 610};
+    Fill(hdc, order_desk, panel_fill);
+    Frame(order_desk, wood_dark);
+    RECT inner_frame{49, 319, 1071, 606};
+    Frame(inner_frame, RGB(194, 132, 67));
+    Frame(RECT{700, 328, 701, 593}, RGB(194, 132, 67));
+
+    SectionHeader(RECT{65, 330, 680, 365}, L"委托板  4 个订单槽位");
+    SectionHeader(RECT{720, 330, 1055, 365}, L"订单详情");
+
+    for (int i = 0; i < kOrderSlotCount; ++i) {
+        const int row = i / 2;
+        const int col = i % 2;
+        const int x = 65 + col * 310;
+        const int y = 378 + row * 105;
+        RECT card{x, y, x + 290, y + 92};
+
+        if (i >= static_cast<int>(orders.size())) {
+            Fill(hdc, card, muted_fill);
+            SetTextColor(hdc, text_muted);
+            Text(hdc, x + 105, y + 34, L"空订单位");
+            SetTextColor(hdc, text_dark);
+            continue;
+        }
+
+        const OrderData& order = orders[static_cast<std::size_t>(i)];
+        const bool selected = selected_order_ == i;
+        const bool locked = order.locked || order.state == OrderState::Locked;
+        const bool cooling = order.state == OrderState::CoolingDown;
+        const int owned = game_.Player().ItemCount(order.item);
+        const bool deliverable = game_.Orders().CanDeliver(game_.Player(), i) &&
+                                 !game_.Player().IsItemLocked(order.item);
+
+        buttons_.push_back(UiButton{card, kOrderBase + i});
+        Fill(hdc, card, cooling || locked ? muted_fill : card_fill);
+        Frame(card, selected ? RGB(238, 169, 45) : RGB(180, 126, 69));
+        if (selected) {
+            RECT selected_frame = card;
+            InflateRect(&selected_frame, -3, -3);
+            Frame(selected_frame, RGB(238, 169, 45));
+        }
+        if (deliverable) {
+            Fill(hdc, RECT{x + 1, y + 1, x + 6, y + 91}, action_green);
+        }
+
+        DrawTextureOrFill(hdc, ItemTextureKey(order.item), RECT{x + 12, y + 16, x + 68, y + 72},
+                          RGB(226, 196, 126));
+
+        std::wstringstream requirement;
+        requirement << ItemName(order.item) << L"  x" << order.quantity;
+        Text(hdc, x + 80, y + 10, requirement.str());
+
+        if (cooling) {
+            const int ticks_left =
+                std::max(0, order.cooldown_until_tick - game_.Time().CurrentTick());
+            SetTextColor(hdc, text_muted);
+            Text(hdc, x + 80, y + 39,
+                 L"刷新倒计时  " +
+                     std::to_wstring(ticks_left * kGameMinutesPerTick) + L" 分钟");
+            SetTextColor(hdc, text_dark);
+        } else if (locked) {
+            SetTextColor(hdc, text_muted);
+            Text(hdc, x + 80, y + 39, L"订单已锁定");
+            SetTextColor(hdc, text_dark);
+        } else {
+            std::wstringstream stock;
+            stock << L"库存 " << owned << L"/" << order.quantity;
+            Text(hdc, x + 80, y + 37, stock.str());
+
+            RECT progress_back{x + 158, y + 41, x + 272, y + 54};
+            Fill(hdc, progress_back, RGB(174, 143, 94));
+            RECT progress_fill = progress_back;
+            progress_fill.right =
+                progress_back.left +
+                (progress_back.right - progress_back.left) *
+                    std::min(owned, order.quantity) / std::max(1, order.quantity);
+            Fill(hdc, progress_fill,
+                 owned >= order.quantity ? action_green : RGB(219, 157, 54));
+        }
+
+        std::wstringstream reward;
+        reward << L"金币 " << order.reward_gold << L"    经验 +" << order.reward_exp;
+        SetTextColor(hdc, cooling || locked ? text_muted : RGB(128, 75, 25));
+        Text(hdc, x + 80, y + 65, reward.str());
+        SetTextColor(hdc, text_dark);
+    }
+
+    if (!orders.empty()) {
+        const OrderData& selected =
+            orders[static_cast<std::size_t>(selected_order_)];
+        const bool locked =
+            selected.locked || selected.state == OrderState::Locked;
+        const bool cooling = selected.state == OrderState::CoolingDown;
+        const int owned = game_.Player().ItemCount(selected.item);
+        const bool protected_item = game_.Player().IsItemLocked(selected.item);
+        const bool can_deliver =
+            game_.Orders().CanDeliver(game_.Player(), selected_order_) && !protected_item;
+
+        DrawTextureOrFill(hdc, ItemTextureKey(selected.item), RECT{735, 385, 805, 455},
+                          RGB(226, 196, 126));
+        std::wstringstream selected_title;
+        selected_title << L"订单 #" << selected.id << L"  " << ItemName(selected.item);
+        Text(hdc, 825, 385, selected_title.str());
+
+        std::wstringstream selected_stock;
+        selected_stock << L"需要 " << selected.quantity << L"    当前库存 " << owned;
+        Text(hdc, 825, 418, selected_stock.str());
+
+        std::wstringstream selected_reward;
+        selected_reward << L"奖励  " << selected.reward_gold << L" 金币    +"
+                        << selected.reward_exp << L" 经验";
+        SetTextColor(hdc, RGB(128, 75, 25));
+        Text(hdc, 735, 470, selected_reward.str());
+        SetTextColor(hdc, text_dark);
+
+        if (cooling) {
+            const int ticks_left =
+                std::max(0, selected.cooldown_until_tick - game_.Time().CurrentTick());
+            SetTextColor(hdc, text_muted);
+            Text(hdc, 735, 505,
+                 L"订单刷新中，剩余 " +
+                     std::to_wstring(ticks_left * kGameMinutesPerTick) + L" 分钟");
+            SetTextColor(hdc, text_dark);
+        } else if (locked) {
+            SetTextColor(hdc, text_muted);
+            Text(hdc, 735, 505, L"该订单已锁定，暂时不能操作");
+            SetTextColor(hdc, text_dark);
+        } else if (protected_item) {
+            SetTextColor(hdc, RGB(157, 63, 38));
+            Text(hdc, 735, 505, L"该物品已受保护，请先在仓库解除锁定");
+            SetTextColor(hdc, text_dark);
+        } else if (owned < selected.quantity) {
+            SetTextColor(hdc, text_muted);
+            Text(hdc, 735, 505,
+                 L"还需要 " + std::to_wstring(selected.quantity - owned) + L" 个" +
+                     ItemName(selected.item));
+            SetTextColor(hdc, text_dark);
+        } else {
+            SetTextColor(hdc, action_green);
+            Text(hdc, 735, 505, L"物资齐全，可以立即交付");
+            SetTextColor(hdc, text_dark);
+        }
+
+        OrderButton(kCompleteOrder, RECT{735, 545, 885, 585}, L"交付订单",
+                    can_deliver, true);
+        OrderButton(kAbandonOrder, RECT{900, 545, 1045, 585}, L"放弃订单",
+                    !cooling && !locked, false);
+    }
 }
 
 void FarmWindow::DrawWarehouse(HDC hdc) {
-    std::wstringstream cap;
-    cap << L"仓库 " << game_.Player().WarehouseUsed() << L"/"
-        << game_.Player().WarehouseCapacity();
-    Text(hdc, 40, 140, cap.str());
-    DrawTextureOrFill(hdc, L"building_warehouse", RECT{45, 175, 155, 285}, RGB(190, 134, 84));
-    int y = 180;
-    for (const InventoryItemView& item : game_.Player().InventoryView()) {
-        RECT slot{190, y - 7, 235, y + 38};
-        DrawTextureOrFill(hdc, L"inventory_slot", slot, RGB(250, 242, 214));
-        DrawTextureOrFill(hdc, ItemTextureKey(item.item), RECT{197, y, 228, y + 31},
-                          RGB(226, 196, 126));
-        Text(hdc, 250, y + 5, ItemLine(item.item, item.quantity));
-        y += 30;
+    const COLORREF panel_fill = RGB(255, 239, 198);
+    const COLORREF slot_fill = RGB(250, 225, 174);
+    const COLORREF text_dark = RGB(63, 43, 24);
+    const COLORREF text_muted = RGB(117, 91, 62);
+    const COLORREF wood_dark = RGB(105, 65, 30);
+    const COLORREF wood_mid = RGB(151, 94, 43);
+    const COLORREF action_green = RGB(86, 151, 34);
+    const COLORREF disabled_fill = RGB(174, 158, 124);
+    SetTextColor(hdc, text_dark);
+
+    auto Frame = [&](RECT rect, COLORREF color) {
+        HBRUSH brush = CreateSolidBrush(color);
+        FrameRect(hdc, &rect, brush);
+        DeleteObject(brush);
+    };
+    auto SectionHeader = [&](RECT rect, const std::wstring& label) {
+        Fill(hdc, rect, wood_mid);
+        Frame(rect, wood_dark);
+        SetTextColor(hdc, RGB(255, 246, 214));
+        Text(hdc, rect.left + 16, rect.top + 7, label);
+        SetTextColor(hdc, text_dark);
+    };
+    auto WarehouseButton = [&](int id, RECT rect, const std::wstring& label, bool enabled,
+                               COLORREF color) {
+        if (enabled) {
+            buttons_.push_back(UiButton{rect, id});
+        }
+        Fill(hdc, rect, enabled ? color : disabled_fill);
+        Frame(rect, enabled ? RGB(75, 83, 38) : RGB(132, 119, 91));
+        SetTextColor(hdc, enabled ? RGB(255, 250, 224) : RGB(235, 228, 207));
+        Text(hdc, rect.left + 14, rect.top + 8, label);
+        SetTextColor(hdc, text_dark);
+    };
+
+    std::vector<InventoryItemView> inventory = game_.Player().InventoryView();
+    if (!inventory.empty()) {
+        bool selected_exists = false;
+        for (const InventoryItemView& item : inventory) {
+            selected_exists = selected_exists || item.item == selected_warehouse_item_;
+        }
+        if (!selected_exists) {
+            selected_warehouse_item_ = inventory.front().item;
+        }
     }
-    Button(hdc, kSellWheat, RECT{520, 180, 660, 218}, L"卖小麦");
-    Button(hdc, kSellCorn, RECT{520, 228, 660, 266}, L"卖玉米");
-    Button(hdc, kSellCarrot, RECT{520, 276, 660, 314}, L"卖胡萝卜");
-    Button(hdc, kSellTomato, RECT{520, 324, 660, 362}, L"卖番茄");
-    Button(hdc, kSellEgg, RECT{680, 180, 820, 218}, L"卖鸡蛋");
-    Button(hdc, kSellMilk, RECT{680, 228, 820, 266}, L"卖牛奶");
-    Button(hdc, kSellWool, RECT{680, 276, 820, 314}, L"卖羊毛");
+
+    const int page_count =
+        std::max(1, (static_cast<int>(inventory.size()) + kWarehouseItemsPerPage - 1) /
+                        kWarehouseItemsPerPage);
+    warehouse_page_ = std::max(0, std::min(warehouse_page_, page_count - 1));
+
+    const int used = game_.Player().WarehouseUsed();
+    const int capacity = game_.Player().WarehouseCapacity();
+    RECT title_bar{35, 130, 225, 168};
+    Fill(hdc, title_bar, panel_fill);
+    Frame(title_bar, wood_dark);
+    Text(hdc, 55, 140, L"农场仓库");
+
+    RECT capacity_bar{240, 130, 710, 168};
+    Fill(hdc, capacity_bar, panel_fill);
+    Frame(capacity_bar, wood_dark);
+    std::wstringstream capacity_text;
+    capacity_text << L"容量 " << used << L"/" << capacity << L"    剩余 "
+                  << game_.Player().WarehouseRemaining() << L" 格";
+    Text(hdc, 260, 140, capacity_text.str());
+    RECT progress_back{485, 142, 690, 156};
+    Fill(hdc, progress_back, RGB(174, 143, 94));
+    RECT progress_fill = progress_back;
+    progress_fill.right =
+        progress_back.left + (progress_back.right - progress_back.left) * used /
+                                 std::max(1, capacity);
+    const bool nearly_full = used * 100 >= capacity * 80;
+    Fill(hdc, progress_fill, nearly_full ? RGB(219, 132, 44) : action_green);
+    Frame(progress_back, wood_dark);
+
+    const bool can_upgrade = game_.Player().Gold() >= kWarehouseUpgradeCost;
+    WarehouseButton(kWarehouseUpgrade, RECT{720, 130, 875, 168}, L"扩容 +20",
+                    can_upgrade, RGB(65, 132, 177));
+    WarehouseButton(kWarehousePagePrevious, RECT{885, 130, 930, 168}, L"<",
+                    warehouse_page_ > 0, RGB(176, 112, 50));
+    RECT page_box{935, 130, 995, 168};
+    Fill(hdc, page_box, panel_fill);
+    Frame(page_box, wood_dark);
+    Text(hdc, 947, 140,
+         std::to_wstring(warehouse_page_ + 1) + L"/" + std::to_wstring(page_count));
+    WarehouseButton(kWarehousePageNext, RECT{1000, 130, 1045, 168}, L">",
+                    warehouse_page_ + 1 < page_count, RGB(176, 112, 50));
+
+    RECT warehouse_panel{45, 315, 1075, 610};
+    Fill(hdc, warehouse_panel, panel_fill);
+    Frame(warehouse_panel, wood_dark);
+    RECT inner_frame{49, 319, 1071, 606};
+    Frame(inner_frame, RGB(194, 132, 67));
+    Frame(RECT{700, 328, 701, 593}, RGB(194, 132, 67));
+
+    SectionHeader(RECT{65, 330, 680, 365},
+                  L"库存物品  " + std::to_wstring(inventory.size()) + L" 种");
+    SectionHeader(RECT{720, 330, 1055, 365}, L"物品详情");
+
+    const int first_item = warehouse_page_ * kWarehouseItemsPerPage;
+    for (int slot = 0; slot < kWarehouseItemsPerPage; ++slot) {
+        const int index = first_item + slot;
+        const int row = slot / 4;
+        const int col = slot % 4;
+        const int x = 65 + col * 150;
+        const int y = 380 + row * 100;
+        RECT item_slot{x, y, x + 138, y + 88};
+
+        if (index >= static_cast<int>(inventory.size())) {
+            Fill(hdc, item_slot, RGB(239, 217, 177));
+            SetTextColor(hdc, RGB(165, 139, 99));
+            Text(hdc, x + 45, y + 34, L"空格");
+            SetTextColor(hdc, text_dark);
+            continue;
+        }
+
+        const InventoryItemView& item = inventory[static_cast<std::size_t>(index)];
+        const bool selected = item.item == selected_warehouse_item_;
+        buttons_.push_back(UiButton{item_slot, kWarehouseItemBase + slot});
+        Fill(hdc, item_slot, slot_fill);
+        Frame(item_slot, selected ? RGB(238, 169, 45) : RGB(180, 126, 69));
+        if (selected) {
+            RECT selected_frame = item_slot;
+            InflateRect(&selected_frame, -3, -3);
+            Frame(selected_frame, RGB(238, 169, 45));
+        }
+
+        DrawTextureOrFill(hdc, ItemTextureKey(item.item), RECT{x + 41, y + 8, x + 97, y + 64},
+                          RGB(226, 196, 126));
+        Text(hdc, x + 8, y + 65, ItemName(item.item));
+        Text(hdc, x + 101, y + 7, L"x" + std::to_wstring(item.quantity));
+        if (item.locked) {
+            SetTextColor(hdc, RGB(157, 90, 20));
+            Text(hdc, x + 8, y + 7, L"保护");
+            SetTextColor(hdc, text_dark);
+        }
+    }
+
+    if (inventory.empty()) {
+        SetTextColor(hdc, text_muted);
+        Text(hdc, 270, 445, L"仓库暂时没有物品");
+        SetTextColor(hdc, text_dark);
+        return;
+    }
+
+    const InventoryItemView* selected = nullptr;
+    for (const InventoryItemView& item : inventory) {
+        if (item.item == selected_warehouse_item_) {
+            selected = &item;
+            break;
+        }
+    }
+    if (selected == nullptr) {
+        return;
+    }
+
+    const ItemInfo& info = GetItemInfo(selected->item);
+    DrawTextureOrFill(hdc, ItemTextureKey(selected->item), RECT{735, 385, 815, 465},
+                      RGB(226, 196, 126));
+    Text(hdc, 835, 385, ItemName(selected->item));
+    Text(hdc, 835, 418, ItemCategoryName(info.category));
+    Text(hdc, 835, 450, L"数量  " + std::to_wstring(selected->quantity));
+
+    std::wstringstream price;
+    if (info.sell_price > 0) {
+        price << L"单价  " << info.sell_price << L" 金币";
+    } else {
+        price << L"该物品不可出售";
+    }
+    Text(hdc, 735, 485, price.str());
+
+    SetTextColor(hdc, selected->locked ? RGB(157, 90, 20) : action_green);
+    Text(hdc, 735, 515, selected->locked ? L"已保护：不可出售或消耗"
+                                         : L"未保护：可出售或用于生产");
+    SetTextColor(hdc, text_dark);
+
+    WarehouseButton(kWarehouseSellSelected, RECT{735, 550, 855, 590}, L"出售 1 个",
+                    info.sell_price > 0 && !selected->locked && selected->quantity > 0,
+                    action_green);
+    WarehouseButton(kWarehouseToggleLock, RECT{870, 550, 990, 590},
+                    selected->locked ? L"解除保护" : L"保护物品", true,
+                    RGB(176, 112, 50));
 }
 
 void FarmWindow::DrawShop(HDC hdc) {
-    Text(hdc, 40, 140, L"商店");
-    DrawTextureOrFill(hdc, L"building_shop", RECT{45, 175, 165, 295}, RGB(190, 134, 84));
-    const std::vector<std::pair<int, ItemId>> goods = {
-        {kBuyWheatSeed, ItemId::WheatSeed},   {kBuyCornSeed, ItemId::CornSeed},
-        {kBuyCarrotSeed, ItemId::CarrotSeed}, {kBuyTomatoSeed, ItemId::TomatoSeed},
-        {kBuyFertilizer, ItemId::Fertilizer},
+    const COLORREF panel_fill = RGB(255, 239, 198);
+    const COLORREF card_fill = RGB(250, 225, 174);
+    const COLORREF locked_fill = RGB(197, 184, 154);
+    const COLORREF text_dark = RGB(63, 43, 24);
+    const COLORREF text_muted = RGB(120, 93, 61);
+    const COLORREF wood_dark = RGB(105, 65, 30);
+    const COLORREF wood_mid = RGB(151, 94, 43);
+    const COLORREF action_green = RGB(86, 151, 34);
+    const COLORREF warning_orange = RGB(199, 116, 35);
+    SetTextColor(hdc, text_dark);
+
+    auto Frame = [&](RECT rect, COLORREF color) {
+        HBRUSH brush = CreateSolidBrush(color);
+        FrameRect(hdc, &rect, brush);
+        DeleteObject(brush);
     };
-    int y = 185;
-    for (const auto& [button_id, item] : goods) {
-        RECT card{210, y, 520, y + 58};
-        DrawTextureOrFill(hdc, L"shop_card", card, RGB(250, 242, 214));
-        DrawTextureOrFill(hdc, ItemTextureKey(item), RECT{222, y + 8, 264, y + 50},
-                          RGB(226, 196, 126));
-        std::wstringstream label;
-        label << ItemName(item) << L" x1";
-        Button(hdc, button_id, RECT{285, y + 10, 470, y + 48}, label.str());
-        y += 68;
+    auto SectionHeader = [&](RECT rect, const std::wstring& label) {
+        Fill(hdc, rect, wood_mid);
+        Frame(rect, wood_dark);
+        SetTextColor(hdc, RGB(255, 246, 214));
+        Text(hdc, rect.left + 16, rect.top + 7, label);
+        SetTextColor(hdc, text_dark);
+    };
+    auto ShopButton = [&](int id, RECT rect, const std::wstring& label, bool enabled) {
+        if (enabled) {
+            buttons_.push_back(UiButton{rect, id});
+        }
+        Fill(hdc, rect, enabled ? action_green : RGB(164, 150, 119));
+        Frame(rect, enabled ? RGB(75, 108, 32) : RGB(129, 116, 89));
+        SetTextColor(hdc, enabled ? RGB(255, 250, 224) : RGB(233, 225, 204));
+        Text(hdc, rect.left + 10, rect.top + 6, label);
+        SetTextColor(hdc, text_dark);
+    };
+    auto ButtonIdForItem = [](ItemId item) {
+        switch (item) {
+            case ItemId::WheatSeed:
+                return kBuyWheatSeed;
+            case ItemId::CornSeed:
+                return kBuyCornSeed;
+            case ItemId::CarrotSeed:
+                return kBuyCarrotSeed;
+            case ItemId::TomatoSeed:
+                return kBuyTomatoSeed;
+            case ItemId::Fertilizer:
+                return kBuyFertilizer;
+            default:
+                return 0;
+        }
+    };
+
+    const int gold = game_.Player().Gold();
+    const int warehouse_used = game_.Player().WarehouseUsed();
+    const int warehouse_capacity = game_.Player().WarehouseCapacity();
+    const int warehouse_remaining = game_.Player().WarehouseRemaining();
+
+    RECT title_bar{35, 130, 225, 168};
+    Fill(hdc, title_bar, panel_fill);
+    Frame(title_bar, wood_dark);
+    Text(hdc, 55, 140, L"农场商店");
+
+    RECT resource_bar{240, 130, 1045, 168};
+    Fill(hdc, resource_bar, panel_fill);
+    Frame(resource_bar, wood_dark);
+    DrawTextureOrFill(hdc, L"item_coin", RECT{258, 137, 282, 161}, RGB(237, 190, 67));
+    Text(hdc, 292, 140, L"金币 " + std::to_wstring(gold));
+    Text(hdc, 465, 140,
+         L"仓库 " + std::to_wstring(warehouse_used) + L"/" +
+             std::to_wstring(warehouse_capacity));
+    SetTextColor(hdc, warehouse_remaining > 0 ? action_green : warning_orange);
+    Text(hdc, 680, 140, L"剩余空间 " + std::to_wstring(warehouse_remaining));
+    SetTextColor(hdc, text_dark);
+
+    RECT hint_bar{35, 180, 470, 220};
+    Fill(hdc, hint_bar, RGB(255, 246, 216));
+    Frame(hint_bar, RGB(184, 124, 62));
+    Text(hdc, 52, 191, L"种子与肥料商店 · 每次购买 1 个");
+
+    RECT shop_panel{45, 315, 1075, 610};
+    Fill(hdc, shop_panel, panel_fill);
+    Frame(shop_panel, wood_dark);
+    RECT inner_frame{49, 319, 1071, 606};
+    Frame(inner_frame, RGB(194, 132, 67));
+    Frame(RECT{690, 328, 691, 593}, RGB(194, 132, 67));
+
+    SectionHeader(RECT{65, 330, 670, 365}, L"商品货架");
+    SectionHeader(RECT{710, 330, 1055, 365}, L"购买说明");
+
+    const std::vector<ShopItemView> goods = game_.Shop().Items(game_.Player());
+    for (std::size_t index = 0; index < goods.size(); ++index) {
+        const ShopItemView& good = goods[index];
+        const int row = static_cast<int>(index) / 3;
+        const int col = static_cast<int>(index) % 3;
+        const int x = 65 + col * 202;
+        const int y = 375 + row * 105;
+        RECT card{x, y, x + 188, y + 94};
+        const bool has_gold = gold >= good.unit_price;
+        const bool has_space = warehouse_remaining > 0;
+        const bool can_buy = good.unlocked && has_gold && has_space;
+
+        Fill(hdc, card, good.unlocked ? card_fill : locked_fill);
+        Frame(card, good.unlocked ? RGB(180, 126, 69) : RGB(133, 119, 91));
+        DrawTextureOrFill(hdc, ItemTextureKey(good.item),
+                          RECT{x + 10, y + 10, x + 58, y + 58}, RGB(226, 196, 126));
+
+        SetTextColor(hdc, good.unlocked ? text_dark : text_muted);
+        Text(hdc, x + 68, y + 9, ItemName(good.item));
+        Text(hdc, x + 68, y + 34,
+             L"持有 " + std::to_wstring(game_.Player().ItemCount(good.item)));
+        DrawTextureOrFill(hdc, L"item_coin", RECT{x + 12, y + 65, x + 34, y + 87},
+                          RGB(237, 190, 67));
+        Text(hdc, x + 40, y + 66, std::to_wstring(good.unit_price));
+
+        std::wstring action = L"购买 1 个";
+        if (!good.unlocked) {
+            action = L"未解锁";
+        } else if (!has_space) {
+            action = L"仓库已满";
+        } else if (!has_gold) {
+            action = L"金币不足";
+        }
+        ShopButton(ButtonIdForItem(good.item), RECT{x + 91, y + 60, x + 178, y + 89},
+                   action, can_buy);
     }
-    Text(hdc, 570, 200, L"锁定的种子需要先在“解锁”页购买节点。");
+
+    SetTextColor(hdc, text_dark);
+    Text(hdc, 730, 385, L"购买条件");
+    Text(hdc, 745, 425, L"1. 种子已在解锁页开放");
+    Text(hdc, 745, 458, L"2. 金币不少于商品单价");
+    Text(hdc, 745, 491, L"3. 仓库至少保留 1 格空间");
+
+    SetTextColor(hdc, warehouse_remaining > 0 ? action_green : warning_orange);
+    Text(hdc, 730, 535,
+         warehouse_remaining > 0 ? L"当前仓库可以接收新商品"
+                                 : L"当前仓库已满，请先整理仓库");
+    SetTextColor(hdc, text_dark);
+    Text(hdc, 730, 568, L"未解锁种子请前往顶部“解锁”页面。");
 }
 
 void FarmWindow::DrawUnlock(HDC hdc) {
-    Text(hdc, 40, 135, L"DAG 解锁树");
-    int y = 175;
-    int index = 0;
-    for (const UnlockNode& node : UnlockGraph::Nodes()) {
-        std::wstringstream ss;
-        ss << Utf8ToWide(node.name) << L"  等级 " << node.required_level << L"  费用 "
-           << node.gold_cost << L"  状态 ";
-        if (game_.Player().IsUnlocked(node.id)) {
-            ss << L"已解锁";
-        } else if (game_.Player().CanUnlock(node.id)) {
-            ss << L"可解锁";
-        } else {
-            ss << L"前置未满足";
+    const COLORREF panel_fill = RGB(255, 239, 198);
+    const COLORREF node_fill = RGB(250, 225, 174);
+    const COLORREF text_dark = RGB(63, 43, 24);
+    const COLORREF text_muted = RGB(119, 98, 73);
+    const COLORREF wood_dark = RGB(105, 65, 30);
+    const COLORREF green = RGB(91, 155, 43);
+    const COLORREF amber = RGB(224, 157, 37);
+    const COLORREF gray = RGB(154, 143, 119);
+    const COLORREF purple = RGB(143, 116, 151);
+    const COLORREF red = RGB(190, 91, 61);
+    const COLORREF seed_line = RGB(78, 145, 48);
+    const COLORREF ranch_line = RGB(46, 124, 177);
+    const COLORREF dependency_line = RGB(205, 137, 28);
+    SetTextColor(hdc, text_dark);
+
+    auto Frame = [&](RECT rect, COLORREF color) {
+        HBRUSH brush = CreateSolidBrush(color);
+        FrameRect(hdc, &rect, brush);
+        DeleteObject(brush);
+    };
+    auto NodeRect = [](UnlockId id) {
+        switch (id) {
+            case UnlockId::WheatSeed:
+                return RECT{65, 295, 210, 371};
+            case UnlockId::CornSeed:
+                return RECT{230, 295, 375, 371};
+            case UnlockId::CarrotSeed:
+                return RECT{395, 295, 540, 371};
+            case UnlockId::TomatoSeed:
+                return RECT{560, 295, 705, 371};
+            case UnlockId::ExtraLand:
+                return RECT{230, 505, 375, 581};
+            case UnlockId::ChickenCoop:
+                return RECT{65, 400, 210, 476};
+            case UnlockId::CowBarn:
+                return RECT{395, 400, 540, 476};
+            case UnlockId::SheepPen:
+                return RECT{560, 400, 705, 476};
+            case UnlockId::Chicken:
+                return RECT{65, 505, 210, 581};
+            case UnlockId::Cow:
+                return RECT{395, 505, 540, 581};
+            case UnlockId::Sheep:
+                return RECT{560, 505, 705, 581};
         }
-        Text(hdc, 50, y, ss.str());
-        Button(hdc, kUnlockBase + index, RECT{650, y - 8, 790, y + 28}, L"解锁");
-        y += 38;
+        return RECT{65, 295, 210, 371};
+    };
+    auto NodeTexture = [](UnlockId id) -> std::wstring {
+        switch (id) {
+            case UnlockId::WheatSeed:
+                return L"seed_wheat";
+            case UnlockId::CornSeed:
+                return L"seed_corn";
+            case UnlockId::CarrotSeed:
+                return L"seed_carrot";
+            case UnlockId::TomatoSeed:
+                return L"seed_tomato";
+            case UnlockId::ExtraLand:
+                return L"soil";
+            case UnlockId::ChickenCoop:
+                return L"building_chicken_coop";
+            case UnlockId::CowBarn:
+                return L"building_cow_barn";
+            case UnlockId::SheepPen:
+                return L"building_sheep_pen";
+            case UnlockId::Chicken:
+                return L"animal_chicken_idle";
+            case UnlockId::Cow:
+                return L"animal_cow_idle";
+            case UnlockId::Sheep:
+                return L"animal_sheep_idle";
+        }
+        return L"item_unknown";
+    };
+    auto DrawPath = [&](const std::vector<POINT>& points, COLORREF color) {
+        if (points.size() < 2) {
+            return;
+        }
+        HPEN pen = CreatePen(PS_SOLID, 3, color);
+        HGDIOBJ old_pen = SelectObject(hdc, pen);
+        MoveToEx(hdc, points.front().x, points.front().y, nullptr);
+        for (std::size_t i = 1; i < points.size(); ++i) {
+            LineTo(hdc, points[i].x, points[i].y);
+        }
+        const POINT& end = points.back();
+        const POINT& previous = points[points.size() - 2];
+        if (end.x != previous.x) {
+            const int direction = end.x > previous.x ? 1 : -1;
+            MoveToEx(hdc, end.x, end.y, nullptr);
+            LineTo(hdc, end.x - direction * 7, end.y - 5);
+            MoveToEx(hdc, end.x, end.y, nullptr);
+            LineTo(hdc, end.x - direction * 7, end.y + 5);
+        } else {
+            const int direction = end.y > previous.y ? 1 : -1;
+            MoveToEx(hdc, end.x, end.y, nullptr);
+            LineTo(hdc, end.x - 5, end.y - direction * 7);
+            MoveToEx(hdc, end.x, end.y, nullptr);
+            LineTo(hdc, end.x + 5, end.y - direction * 7);
+        }
+        SelectObject(hdc, old_pen);
+        DeleteObject(pen);
+    };
+
+    const auto& nodes = UnlockGraph::Nodes();
+    int unlocked_count = 0;
+    for (const UnlockNode& node : nodes) {
+        if (game_.Player().IsUnlocked(node.id)) {
+            ++unlocked_count;
+        }
+    }
+
+    RECT title_bar{35, 130, 310, 168};
+    Fill(hdc, title_bar, panel_fill);
+    Frame(title_bar, wood_dark);
+    Text(hdc, 55, 140, L"农场发展路线");
+
+    RECT resource_bar{325, 130, 1045, 168};
+    Fill(hdc, resource_bar, panel_fill);
+    Frame(resource_bar, wood_dark);
+    Text(hdc, 345, 140, L"等级 " + std::to_wstring(game_.Player().Level()));
+    DrawTextureOrFill(hdc, L"item_coin", RECT{470, 137, 494, 161}, RGB(237, 190, 67));
+    Text(hdc, 504, 140, L"金币 " + std::to_wstring(game_.Player().Gold()));
+    Text(hdc, 700, 140,
+         L"进度 " + std::to_wstring(unlocked_count) + L"/" +
+             std::to_wstring(nodes.size()));
+
+    RECT hint_bar{35, 180, 655, 220};
+    Fill(hdc, hint_bar, RGB(255, 246, 216));
+    Frame(hint_bar, RGB(184, 124, 62));
+    Text(hdc, 52, 191, L"沿连线逐步开放种子、土地、牧场设施和动物");
+
+    RECT tree_panel{45, 250, 1075, 610};
+    Fill(hdc, tree_panel, panel_fill);
+    Frame(tree_panel, wood_dark);
+    Frame(RECT{49, 254, 1071, 606}, RGB(194, 132, 67));
+    Frame(RECT{725, 265, 726, 593}, RGB(194, 132, 67));
+
+    SetTextColor(hdc, seed_line);
+    Text(hdc, 65, 264, L"种植路线");
+    SetTextColor(hdc, ranch_line);
+    Text(hdc, 65, 378, L"养殖路线");
+    SetTextColor(hdc, text_dark);
+
+    DrawPath({POINT{210, 333}, POINT{230, 333}}, seed_line);
+    DrawPath({POINT{375, 333}, POINT{395, 333}}, seed_line);
+    DrawPath({POINT{540, 333}, POINT{560, 333}}, seed_line);
+    DrawPath({POINT{302, 371}, POINT{302, 505}}, seed_line);
+    DrawPath({POINT{467, 371}, POINT{467, 400}}, dependency_line);
+    DrawPath({POINT{210, 438}, POINT{395, 438}}, ranch_line);
+    DrawPath({POINT{540, 438}, POINT{560, 438}}, ranch_line);
+    DrawPath({POINT{137, 476}, POINT{137, 505}}, ranch_line);
+    DrawPath({POINT{467, 476}, POINT{467, 505}}, ranch_line);
+    DrawPath({POINT{632, 476}, POINT{632, 505}}, ranch_line);
+
+    HFONT status_font =
+        CreateFontW(14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                    DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei UI");
+    int index = 0;
+    for (const UnlockNode& node : nodes) {
+        const bool unlocked = game_.Player().IsUnlocked(node.id);
+        const bool requirements_met = game_.Player().CanUnlock(node.id);
+        const bool enough_gold = game_.Player().Gold() >= node.gold_cost;
+        const bool can_unlock = requirements_met && enough_gold;
+        const bool level_met = game_.Player().Level() >= node.required_level;
+
+        COLORREF status_color = purple;
+        std::wstring status = L"前置未满足";
+        if (unlocked) {
+            status_color = green;
+            status = L"已解锁";
+        } else if (!level_met) {
+            status_color = gray;
+            status = L"等级不足";
+        } else if (requirements_met && !enough_gold) {
+            status_color = red;
+            status = L"金币不足";
+        } else if (can_unlock) {
+            status_color = amber;
+            status = L"可解锁";
+        }
+
+        const RECT rect = NodeRect(node.id);
+        Fill(hdc, rect, unlocked ? RGB(226, 239, 174) : node_fill);
+        Frame(rect, status_color);
+        DrawTextureOrFill(hdc, NodeTexture(node.id),
+                          RECT{rect.left + 7, rect.top + 8, rect.left + 43, rect.top + 44},
+                          RGB(226, 196, 126));
+        SetTextColor(hdc, text_dark);
+        Text(hdc, rect.left + 49, rect.top + 6, Utf8ToWide(node.name));
+        Text(hdc, rect.left + 49, rect.top + 28,
+             L"等级 " + std::to_wstring(node.required_level));
+        DrawTextureOrFill(hdc, L"item_coin",
+                          RECT{rect.left + 8, rect.top + 50, rect.left + 27, rect.top + 69},
+                          RGB(237, 190, 67));
+        Text(hdc, rect.left + 31, rect.top + 50, std::to_wstring(node.gold_cost));
+
+        RECT status_rect{rect.left + 61, rect.top + 48, rect.right - 6, rect.bottom - 5};
+        Fill(hdc, status_rect, status_color);
+        Frame(status_rect, wood_dark);
+        SetTextColor(hdc, RGB(255, 247, 219));
+        HGDIOBJ old_font = SelectObject(hdc, status_font);
+        Text(hdc, status_rect.left + 4, status_rect.top + 5, status);
+        SelectObject(hdc, old_font);
+        if (can_unlock) {
+            buttons_.push_back(UiButton{status_rect, kUnlockBase + index});
+        }
         ++index;
     }
+    DeleteObject(status_font);
+
+    SetTextColor(hdc, text_dark);
+    Text(hdc, 755, 275, L"状态说明");
+    const std::vector<std::pair<COLORREF, std::wstring>> legend = {
+        {green, L"已解锁"}, {amber, L"可解锁"}, {gray, L"等级不足"},
+        {purple, L"前置未满足"}, {red, L"金币不足"},
+    };
+    int legend_y = 310;
+    for (const auto& [color, label] : legend) {
+        RECT swatch{755, legend_y, 780, legend_y + 20};
+        Fill(hdc, swatch, color);
+        Frame(swatch, wood_dark);
+        Text(hdc, 792, legend_y, label);
+        legend_y += 35;
+    }
+
+    SetTextColor(hdc, seed_line);
+    Text(hdc, 755, 500, L"绿色连线：种植发展");
+    SetTextColor(hdc, ranch_line);
+    Text(hdc, 755, 530, L"蓝色连线：牧场发展");
+    SetTextColor(hdc, dependency_line);
+    Text(hdc, 755, 560, L"金色连线：跨路线前置");
+    SetTextColor(hdc, text_muted);
+    Text(hdc, 755, 585, L"点击“可解锁”完成开放");
+    SetTextColor(hdc, text_dark);
 }
 
 void FarmWindow::DrawSave(HDC hdc) {
-    Text(hdc, 40, 140, L"存档 / 读档");
-    Text(hdc, 40, 180, L"存档文件：saves/save01.farm");
-    Button(hdc, kSave, RECT{50, 230, 200, 270}, L"手动保存");
-    Button(hdc, kLoad, RECT{220, 230, 370, 270}, L"读取存档");
-    Button(hdc, kNewGame, RECT{390, 230, 540, 270}, L"新游戏");
+    const COLORREF panel_fill = RGB(255, 239, 198);
+    const COLORREF text_dark = RGB(63, 43, 24);
+    const COLORREF text_muted = RGB(117, 91, 62);
+    const COLORREF wood_dark = RGB(105, 65, 30);
+    const COLORREF wood_mid = RGB(151, 94, 43);
+    const COLORREF green = RGB(86, 151, 34);
+    const COLORREF blue = RGB(55, 126, 178);
+    const COLORREF red = RGB(181, 76, 48);
+    const COLORREF disabled = RGB(164, 150, 119);
+    SetTextColor(hdc, text_dark);
+
+    auto Frame = [&](RECT rect, COLORREF color) {
+        HBRUSH brush = CreateSolidBrush(color);
+        FrameRect(hdc, &rect, brush);
+        DeleteObject(brush);
+    };
+    auto SectionHeader = [&](RECT rect, const std::wstring& label) {
+        Fill(hdc, rect, wood_mid);
+        Frame(rect, wood_dark);
+        SetTextColor(hdc, RGB(255, 246, 214));
+        Text(hdc, rect.left + 16, rect.top + 7, label);
+        SetTextColor(hdc, text_dark);
+    };
+    auto SaveButton = [&](int id, RECT rect, const std::wstring& label, COLORREF color,
+                          bool enabled) {
+        if (enabled) {
+            buttons_.push_back(UiButton{rect, id});
+        }
+        Fill(hdc, rect, enabled ? color : disabled);
+        Frame(rect, enabled ? wood_dark : RGB(128, 115, 88));
+        SetTextColor(hdc, enabled ? RGB(255, 250, 224) : RGB(232, 225, 205));
+        Text(hdc, rect.left + 18, rect.top + 10, label);
+        SetTextColor(hdc, text_dark);
+    };
+
+    const bool save_exists = SaveManager::Exists(Narrow(SavePath()));
+    std::error_code file_error;
+    const std::uintmax_t save_size =
+        save_exists ? std::filesystem::file_size(std::filesystem::path(SavePath()), file_error)
+                    : 0;
+    const TimeSnapshot time = game_.Time().Snapshot();
+    const int auto_save_elapsed = time.tick - game_.LastAutoSaveTick();
+    const int ticks_until_auto_save =
+        std::max(0, kAutoSaveEveryTicks - auto_save_elapsed);
+
+    RECT title_bar{35, 130, 285, 168};
+    Fill(hdc, title_bar, panel_fill);
+    Frame(title_bar, wood_dark);
+    Text(hdc, 55, 140, L"农场记录");
+
+    RECT auto_save_bar{300, 130, 1045, 168};
+    Fill(hdc, auto_save_bar, panel_fill);
+    Frame(auto_save_bar, wood_dark);
+    SetTextColor(hdc, green);
+    Text(hdc, 325, 140, L"每 12 刻自动保存");
+    SetTextColor(hdc, text_dark);
+    Text(hdc, 565, 140,
+         L"下次约 " + std::to_wstring(ticks_until_auto_save) + L" 刻");
+    Text(hdc, 790, 140, L"存档版本 2");
+
+    RECT hint_bar{35, 180, 640, 220};
+    Fill(hdc, hint_bar, RGB(255, 246, 216));
+    Frame(hint_bar, RGB(184, 124, 62));
+    Text(hdc, 52, 191, L"单一存档槽 · 保存会覆盖现有记录 · 读取会结算离线进度");
+
+    RECT save_panel{45, 315, 1075, 610};
+    Fill(hdc, save_panel, panel_fill);
+    Frame(save_panel, wood_dark);
+    Frame(RECT{49, 319, 1071, 606}, RGB(194, 132, 67));
+    Frame(RECT{365, 328, 366, 593}, RGB(194, 132, 67));
+    Frame(RECT{700, 328, 701, 593}, RGB(194, 132, 67));
+
+    SectionHeader(RECT{65, 330, 345, 365}, L"存档槽 1");
+    SectionHeader(RECT{385, 330, 680, 365}, L"存档操作");
+    SectionHeader(RECT{720, 330, 1055, 365}, L"保存内容");
+
+    DrawTextureOrFill(hdc, L"building_warehouse", RECT{70, 380, 140, 450},
+                      RGB(190, 134, 84));
+    SetTextColor(hdc, save_exists ? green : text_muted);
+    Text(hdc, 155, 382, save_exists ? L"已有存档" : L"空存档槽");
+    SetTextColor(hdc, text_dark);
+    Text(hdc, 155, 412, L"saves/save01.farm");
+    SetTextColor(hdc, text_muted);
+    Text(hdc, 155, 440,
+         save_exists && !file_error
+             ? L"文件大小 " + std::to_wstring(save_size) + L" 字节"
+             : L"尚未生成存档文件");
+
+    SetTextColor(hdc, text_dark);
+    Text(hdc, 75, 480,
+         L"第 " + std::to_wstring(time.day) + L" 天   等级 " +
+             std::to_wstring(game_.Player().Level()));
+    Text(hdc, 75, 510,
+         L"金币 " + std::to_wstring(game_.Player().Gold()) + L"   仓库 " +
+             std::to_wstring(game_.Player().WarehouseUsed()) + L"/" +
+             std::to_wstring(game_.Player().WarehouseCapacity()));
+    Text(hdc, 75, 540,
+         L"农田 " + std::to_wstring(game_.Planting().Plots().size()) +
+             L" 块   牧场设施 " +
+             std::to_wstring(game_.Ranch().Facilities().size()));
+    Text(hdc, 75, 570, L"天气 " + std::wstring(WeatherName(game_.Weather().Snapshot().weather)));
+
+    SaveButton(kSave, RECT{405, 385, 660, 430}, L"保存当前进度", green, true);
+    SaveButton(kLoad, RECT{405, 455, 660, 500}, L"读取存档", blue, save_exists);
+    SaveButton(kNewGame, RECT{405, 525, 660, 570}, L"开始新游戏", red, true);
+    SetTextColor(hdc, red);
+    Text(hdc, 405, 582, L"未保存的当前进度将丢失");
+
+    SetTextColor(hdc, text_dark);
+    Text(hdc, 740, 382, L"农田：作物状态与土地扩建");
+    Text(hdc, 740, 420, L"牧场：设施、动物与生产状态");
+    Text(hdc, 740, 458, L"仓库：物品数量与保护状态");
+    Text(hdc, 740, 496, L"订单：当前订单与冷却进度");
+    Text(hdc, 740, 534, L"时间：天气、速度与游戏日期");
+    SetTextColor(hdc, green);
+    Text(hdc, 740, 575, L"读取时自动结算离线进度");
+    SetTextColor(hdc, text_dark);
 }
 
 void FarmWindow::DrawTextureOrFill(HDC hdc, const std::wstring& key, RECT rect,
@@ -955,7 +2855,6 @@ void FarmWindow::Text(HDC hdc, int x, int y, const std::wstring& text) {
 void FarmWindow::Button(HDC hdc, int id, RECT rect, const std::wstring& text) {
     buttons_.push_back(UiButton{rect, id});
     DrawTextureOrFill(hdc, L"wood", rect, RGB(188, 126, 62));
-    FrameRect(hdc, &rect, reinterpret_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
     SetTextColor(hdc, RGB(255, 250, 230));
     Text(hdc, rect.left + 10, rect.top + 9, text);
     SetTextColor(hdc, RGB(58, 54, 39));
@@ -964,18 +2863,21 @@ void FarmWindow::Button(HDC hdc, int id, RECT rect, const std::wstring& text) {
 void FarmWindow::OnButton(int id) {
     if (id == kBtnNew) {
         game_ = Game::NewGame();
-        screen_ = Screen::Farm;
+        SwitchScreen(Screen::Farm);
+        selected_ranch_facility_id_ = 1;
+        ranch_facility_page_ = 0;
         SetMessage(L"新游戏已开始。");
         return;
     }
     if (id == kBtnContinue) {
         if (TryContinue()) {
-            screen_ = Screen::Farm;
+            SwitchScreen(Screen::Farm);
         }
         return;
     }
     if (id >= kTabFarm && id <= kTabSave) {
-        screen_ = static_cast<Screen>(static_cast<int>(Screen::Farm) + (id - kTabFarm));
+        SwitchScreen(
+            static_cast<Screen>(static_cast<int>(Screen::Farm) + (id - kTabFarm)));
         return;
     }
     if (id == kTick) {
@@ -1025,22 +2927,72 @@ void FarmWindow::OnButton(int id) {
         result = expanded.ok() ? Result<void>::success() : Result<void>::failure(expanded.code);
     } else if (id == kBuildCowBarn) {
         auto built = game_.Ranch().BuildFacility(game_.Player(), RanchFacilityKind::CowBarn);
+        if (built.ok()) {
+            selected_ranch_facility_id_ = built.value;
+            const int facility_count = static_cast<int>(game_.Ranch().FacilityViews().size());
+            ranch_facility_page_ = (facility_count - 1) / kRanchFacilitiesPerPage;
+        }
         result = built.ok() ? Result<void>::success() : Result<void>::failure(built.code);
     } else if (id == kBuildSheepPen) {
         auto built = game_.Ranch().BuildFacility(game_.Player(), RanchFacilityKind::SheepPen);
+        if (built.ok()) {
+            selected_ranch_facility_id_ = built.value;
+            const int facility_count = static_cast<int>(game_.Ranch().FacilityViews().size());
+            ranch_facility_page_ = (facility_count - 1) / kRanchFacilitiesPerPage;
+        }
         result = built.ok() ? Result<void>::success() : Result<void>::failure(built.code);
     } else if (id == kBuyChicken) {
-        auto bought = game_.Ranch().BuyAnimal(game_.Player(), FirstFacility(RanchFacilityKind::ChickenCoop),
-                                              AnimalKind::Chicken);
+        auto bought = game_.Ranch().BuyAnimal(
+            game_.Player(), SelectedFacility(RanchFacilityKind::ChickenCoop),
+            AnimalKind::Chicken);
         result = bought.ok() ? Result<void>::success() : Result<void>::failure(bought.code);
     } else if (id == kBuyCow) {
-        auto bought = game_.Ranch().BuyAnimal(game_.Player(), FirstFacility(RanchFacilityKind::CowBarn),
+        auto bought = game_.Ranch().BuyAnimal(game_.Player(),
+                                              SelectedFacility(RanchFacilityKind::CowBarn),
                                               AnimalKind::Cow);
         result = bought.ok() ? Result<void>::success() : Result<void>::failure(bought.code);
     } else if (id == kBuySheep) {
-        auto bought = game_.Ranch().BuyAnimal(game_.Player(), FirstFacility(RanchFacilityKind::SheepPen),
-                                              AnimalKind::Sheep);
+        auto bought = game_.Ranch().BuyAnimal(
+            game_.Player(), SelectedFacility(RanchFacilityKind::SheepPen), AnimalKind::Sheep);
         result = bought.ok() ? Result<void>::success() : Result<void>::failure(bought.code);
+    } else if (id == kFeedSelected) {
+        auto fed = game_.Ranch().BatchFeed(game_.Player(), selected_ranch_facility_id_,
+                                           game_.Time().CurrentTick());
+        if (fed.ok()) {
+            SetMessage(L"当前设施已喂食 " + std::to_wstring(fed.value) + L" 只动物。");
+        } else {
+            SetMessage(fed.code);
+        }
+        return;
+    } else if (id == kHarvestSelected) {
+        auto harvested =
+            game_.Ranch().BatchHarvest(game_.Player(), selected_ranch_facility_id_);
+        if (harvested.ok()) {
+            SetMessage(L"当前设施已收获 " + std::to_wstring(harvested.value) + L" 个产品。");
+        } else {
+            SetMessage(harvested.code);
+        }
+        return;
+    } else if (id == kRanchPagePrevious) {
+        ranch_facility_page_ = std::max(0, ranch_facility_page_ - 1);
+        return;
+    } else if (id == kRanchPageNext) {
+        const int facility_count = static_cast<int>(game_.Ranch().FacilityViews().size());
+        const int page_count =
+            std::max(1, (facility_count + kRanchFacilitiesPerPage - 1) /
+                            kRanchFacilitiesPerPage);
+        ranch_facility_page_ = std::min(page_count - 1, ranch_facility_page_ + 1);
+        return;
+    } else if (id >= kSelectRanchFacilityBase &&
+               id < kSelectRanchFacilityBase + kRanchFacilitiesPerPage) {
+        const int slot = id - kSelectRanchFacilityBase;
+        const int index = ranch_facility_page_ * kRanchFacilitiesPerPage + slot;
+        const auto facilities = game_.Ranch().FacilityViews();
+        if (index >= 0 && index < static_cast<int>(facilities.size())) {
+            selected_ranch_facility_id_ =
+                facilities[static_cast<std::size_t>(index)].id;
+        }
+        return;
     } else if (id == kFeedAll) {
         int fed = 0;
         for (const RanchFacilityView& facility : game_.Ranch().FacilityViews()) {
@@ -1100,6 +3052,35 @@ void FarmWindow::OnButton(int id) {
         result = game_.Player().TrySellItem(ItemId::Milk, 1);
     } else if (id == kSellWool) {
         result = game_.Player().TrySellItem(ItemId::Wool, 1);
+    } else if (id == kWarehouseSellSelected) {
+        result = game_.Player().TrySellItem(selected_warehouse_item_, 1);
+    } else if (id == kWarehouseToggleLock) {
+        const bool locked = game_.Player().IsItemLocked(selected_warehouse_item_);
+        game_.Player().SetItemLocked(selected_warehouse_item_, !locked);
+        SetMessage(locked ? L"已解除物品保护。" : L"已保护物品。");
+        return;
+    } else if (id == kWarehouseUpgrade) {
+        result = game_.Player().UpgradeWarehouse();
+    } else if (id == kWarehousePagePrevious) {
+        warehouse_page_ = std::max(0, warehouse_page_ - 1);
+        return;
+    } else if (id == kWarehousePageNext) {
+        const int item_count = static_cast<int>(game_.Player().InventoryView().size());
+        const int page_count =
+            std::max(1, (item_count + kWarehouseItemsPerPage - 1) /
+                            kWarehouseItemsPerPage);
+        warehouse_page_ = std::min(page_count - 1, warehouse_page_ + 1);
+        return;
+    } else if (id >= kWarehouseItemBase &&
+               id < kWarehouseItemBase + kWarehouseItemsPerPage) {
+        const int slot = id - kWarehouseItemBase;
+        const int index = warehouse_page_ * kWarehouseItemsPerPage + slot;
+        const auto inventory = game_.Player().InventoryView();
+        if (index >= 0 && index < static_cast<int>(inventory.size())) {
+            selected_warehouse_item_ =
+                inventory[static_cast<std::size_t>(index)].item;
+        }
+        return;
     } else if (id >= kUnlockBase && id < kUnlockBase + 100) {
         const int index = id - kUnlockBase;
         const auto& nodes = UnlockGraph::Nodes();
@@ -1113,6 +3094,8 @@ void FarmWindow::OnButton(int id) {
         result = game_.Load(Narrow(SavePath()));
     } else if (id == kNewGame) {
         game_ = Game::NewGame();
+        selected_ranch_facility_id_ = 1;
+        ranch_facility_page_ = 0;
         SetMessage(L"新游戏已开始。");
         return;
     }
@@ -1121,10 +3104,16 @@ void FarmWindow::OnButton(int id) {
 
 void FarmWindow::SetMessage(ErrorCode code) {
     message_ = ErrorMessage(code);
+    message_is_error_ = code != ErrorCode::Ok;
+    message_changed_at_ = GetTickCount64();
+    SetTimer(hwnd_, kMessageTimerId, 33, nullptr);
 }
 
 void FarmWindow::SetMessage(const std::wstring& text) {
     message_ = text;
+    message_is_error_ = false;
+    message_changed_at_ = GetTickCount64();
+    SetTimer(hwnd_, kMessageTimerId, 33, nullptr);
 }
 
 std::wstring FarmWindow::ItemLine(ItemId item, int quantity) const {
@@ -1158,6 +3147,15 @@ int FarmWindow::FirstFacility(RanchFacilityKind kind) const {
         }
     }
     return -1;
+}
+
+int FarmWindow::SelectedFacility(RanchFacilityKind kind) const {
+    for (const RanchFacilityView& facility : game_.Ranch().FacilityViews()) {
+        if (facility.id == selected_ranch_facility_id_ && facility.kind == kind) {
+            return facility.id;
+        }
+    }
+    return FirstFacility(kind);
 }
 
 }  // namespace
