@@ -1986,7 +1986,7 @@ void FarmWindow::DrawOrders(HDC hdc) {
             ++available_count;
         }
         if (game_.Orders().CanDeliver(game_.Player(), i) &&
-            !game_.Player().IsItemLocked(order.item)) {
+            !game_.Player().IsItemLocked(order.requirements[0].item)) {
             ++deliverable_count;
         }
     }
@@ -2033,9 +2033,9 @@ void FarmWindow::DrawOrders(HDC hdc) {
         const bool selected = selected_order_ == i;
         const bool locked = order.locked || order.state == OrderState::Locked;
         const bool cooling = order.state == OrderState::CoolingDown;
-        const int owned = game_.Player().ItemCount(order.item);
+        const int owned = game_.Player().ItemCount(order.requirements[0].item);
         const bool deliverable = game_.Orders().CanDeliver(game_.Player(), i) &&
-                                 !game_.Player().IsItemLocked(order.item);
+                                 !game_.Player().IsItemLocked(order.requirements[0].item);
 
         buttons_.push_back(UiButton{card, kOrderBase + i});
         Fill(hdc, card, cooling || locked ? muted_fill : card_fill);
@@ -2049,11 +2049,11 @@ void FarmWindow::DrawOrders(HDC hdc) {
             Fill(hdc, RECT{x + 1, y + 1, x + 6, y + 91}, action_green);
         }
 
-        DrawTextureOrFill(hdc, ItemTextureKey(order.item), RECT{x + 12, y + 16, x + 68, y + 72},
+        DrawTextureOrFill(hdc, ItemTextureKey(order.requirements[0].item), RECT{x + 12, y + 16, x + 68, y + 72},
                           RGB(226, 196, 126));
 
         std::wstringstream requirement;
-        requirement << ItemName(order.item) << L"  x" << order.quantity;
+        requirement << ItemName(order.requirements[0].item) << L"  x" << order.requirements[0].quantity;
         Text(hdc, x + 80, y + 10, requirement.str());
 
         if (cooling) {
@@ -2070,7 +2070,7 @@ void FarmWindow::DrawOrders(HDC hdc) {
             SetTextColor(hdc, text_dark);
         } else {
             std::wstringstream stock;
-            stock << L"库存 " << owned << L"/" << order.quantity;
+            stock << L"库存 " << owned << L"/" << order.requirements[0].quantity;
             Text(hdc, x + 80, y + 37, stock.str());
 
             RECT progress_back{x + 158, y + 41, x + 272, y + 54};
@@ -2079,9 +2079,9 @@ void FarmWindow::DrawOrders(HDC hdc) {
             progress_fill.right =
                 progress_back.left +
                 (progress_back.right - progress_back.left) *
-                    std::min(owned, order.quantity) / std::max(1, order.quantity);
+                    std::min(owned, order.requirements[0].quantity) / std::max(1, order.requirements[0].quantity);
             Fill(hdc, progress_fill,
-                 owned >= order.quantity ? action_green : RGB(219, 157, 54));
+                 owned >= order.requirements[0].quantity ? action_green : RGB(219, 157, 54));
         }
 
         std::wstringstream reward;
@@ -2097,19 +2097,19 @@ void FarmWindow::DrawOrders(HDC hdc) {
         const bool locked =
             selected.locked || selected.state == OrderState::Locked;
         const bool cooling = selected.state == OrderState::CoolingDown;
-        const int owned = game_.Player().ItemCount(selected.item);
-        const bool protected_item = game_.Player().IsItemLocked(selected.item);
+        const int owned = game_.Player().ItemCount(selected.requirements[0].item);
+        const bool protected_item = game_.Player().IsItemLocked(selected.requirements[0].item);
         const bool can_deliver =
             game_.Orders().CanDeliver(game_.Player(), selected_order_) && !protected_item;
 
-        DrawTextureOrFill(hdc, ItemTextureKey(selected.item), RECT{735, 385, 805, 455},
+        DrawTextureOrFill(hdc, ItemTextureKey(selected.requirements[0].item), RECT{735, 385, 805, 455},
                           RGB(226, 196, 126));
         std::wstringstream selected_title;
-        selected_title << L"订单 #" << selected.id << L"  " << ItemName(selected.item);
+        selected_title << L"订单 #" << selected.id << L"  " << ItemName(selected.requirements[0].item);
         Text(hdc, 825, 385, selected_title.str());
 
         std::wstringstream selected_stock;
-        selected_stock << L"需要 " << selected.quantity << L"    当前库存 " << owned;
+        selected_stock << L"需要 " << selected.requirements[0].quantity << L"    当前库存 " << owned;
         Text(hdc, 825, 418, selected_stock.str());
 
         std::wstringstream selected_reward;
@@ -2135,11 +2135,11 @@ void FarmWindow::DrawOrders(HDC hdc) {
             SetTextColor(hdc, RGB(157, 63, 38));
             Text(hdc, 735, 505, L"该物品已受保护，请先在仓库解除锁定");
             SetTextColor(hdc, text_dark);
-        } else if (owned < selected.quantity) {
+        } else if (owned < selected.requirements[0].quantity) {
             SetTextColor(hdc, text_muted);
             Text(hdc, 735, 505,
-                 L"还需要 " + std::to_wstring(selected.quantity - owned) + L" 个" +
-                     ItemName(selected.item));
+                 L"还需要 " + std::to_wstring(selected.requirements[0].quantity - owned) + L" 个" +
+                     ItemName(selected.requirements[0].item));
             SetTextColor(hdc, text_dark);
         } else {
             SetTextColor(hdc, action_green);
@@ -2229,7 +2229,8 @@ void FarmWindow::DrawWarehouse(HDC hdc) {
     Fill(hdc, progress_fill, nearly_full ? RGB(219, 132, 44) : action_green);
     Frame(progress_back, wood_dark);
 
-    const bool can_upgrade = game_.Player().Gold() >= kWarehouseUpgradeCost;
+    const bool can_upgrade = game_.Player().WarehouseLevel() < kWarehouseMaxLevel &&
+                             game_.Player().Gold() >= kWarehouseUpgradeCosts[game_.Player().WarehouseLevel()];
     WarehouseButton(kWarehouseUpgrade, RECT{720, 130, 875, 168}, L"扩容 +20",
                     can_upgrade, RGB(65, 132, 177));
     WarehouseButton(kWarehousePagePrevious, RECT{885, 130, 930, 168}, L"<",
@@ -2905,16 +2906,16 @@ void FarmWindow::OnButton(int id) {
     Result<void> result = Result<void>::success();
     if (id == kPlantWheat) {
         result = game_.Planting().TryPlantAt(game_.Player(), selected_plot_, ItemId::WheatSeed,
-                                             game_.Time().CurrentTick());
+                                             game_.Time().CurrentTick(), game_.Season().Current());
     } else if (id == kPlantCorn) {
         result = game_.Planting().TryPlantAt(game_.Player(), selected_plot_, ItemId::CornSeed,
-                                             game_.Time().CurrentTick());
+                                             game_.Time().CurrentTick(), game_.Season().Current());
     } else if (id == kPlantCarrot) {
         result = game_.Planting().TryPlantAt(game_.Player(), selected_plot_, ItemId::CarrotSeed,
-                                             game_.Time().CurrentTick());
+                                             game_.Time().CurrentTick(), game_.Season().Current());
     } else if (id == kPlantTomato) {
         result = game_.Planting().TryPlantAt(game_.Player(), selected_plot_, ItemId::TomatoSeed,
-                                             game_.Time().CurrentTick());
+                                             game_.Time().CurrentTick(), game_.Season().Current());
     } else if (id == kWater) {
         result = game_.Planting().WaterPlot(selected_plot_, game_.Time().CurrentTick());
     } else if (id == kFertilize) {
@@ -3014,11 +3015,14 @@ void FarmWindow::OnButton(int id) {
         SetMessage(L"已收获 " + std::to_wstring(got) + L" 个产品。");
         return;
     } else if (id == kMakeChickenFeed) {
-        result = game_.Workshop().StartProduction(game_.Player(), RecipeId::ChickenFeed, 1);
+        result = game_.Workshop().StartProduction(game_.Player(), RecipeId::ChickenFeed, 1,
+                                                   game_.Player().Level());
     } else if (id == kMakeChickenFeed3) {
-        result = game_.Workshop().StartProduction(game_.Player(), RecipeId::ChickenFeed, 3);
+        result = game_.Workshop().StartProduction(game_.Player(), RecipeId::ChickenFeed, 3,
+                                                   game_.Player().Level());
     } else if (id == kMakeCowFeed) {
-        result = game_.Workshop().StartProduction(game_.Player(), RecipeId::CowFeed, 1);
+        result = game_.Workshop().StartProduction(game_.Player(), RecipeId::CowFeed, 1,
+                                                   game_.Player().Level());
     } else if (id == kClaimFeed) {
         result = game_.Workshop().ClaimProduct(game_.Player());
     } else if (id >= kOrderBase && id < kOrderBase + 10) {
