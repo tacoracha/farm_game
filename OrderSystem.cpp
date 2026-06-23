@@ -14,7 +14,11 @@ namespace farm {
 
 OrderSystem::OrderSystem() {
     orders_.assign(static_cast<std::size_t>(kOrderSlotCount), OrderData{});
-    // Constructor doesn't know player state; the first Tick will populate orders.
+}
+
+void OrderSystem::Setup(AchievementSystem* ach, DailyTaskSystem* dts) {
+    ach_ = ach;
+    dts_ = dts;
 }
 
 bool OrderSystem::CanDeliver(const PlayerState& player, int slot) const {
@@ -44,19 +48,16 @@ Result<void> OrderSystem::CompleteOrder(PlayerState& player, int slot, int curre
     if (order.state == OrderState::CoolingDown) {
         return Result<void>::failure(ErrorCode::OrderCoolingDown);
     }
-    // Check protected items first
     for (const OrderRequirement& req : order.requirements) {
         if (player.IsItemLocked(req.item)) {
             return Result<void>::failure(ErrorCode::ProtectedItem);
         }
     }
-    // Validate all items present before removing any
     for (const OrderRequirement& req : order.requirements) {
         if (!player.HasItem(req.item, req.quantity)) {
             return Result<void>::failure(ErrorCode::InsufficientItem);
         }
     }
-    // Remove all required items
     for (const OrderRequirement& req : order.requirements) {
         auto removed = player.TryRemoveItem(req.item, req.quantity);
         if (!removed.ok()) {
@@ -67,8 +68,8 @@ Result<void> OrderSystem::CompleteOrder(PlayerState& player, int slot, int curre
     player.AddExperience(order.reward_exp);
     order.state = OrderState::CoolingDown;
     order.cooldown_until_tick = current_tick + kOrderCompleteCooldownTicks;
-    AchievementSystem::Instance().OnCompleteOrder();
-    DailyTaskSystem::Instance().OnCompleteOrder(1);
+    if (ach_) ach_->OnCompleteOrder();
+    if (dts_) dts_->OnCompleteOrder(1);
     return Result<void>::success();
 }
 
@@ -94,15 +95,11 @@ int OrderSystem::AbandonOrders(const std::vector<int>& slots, int current_tick) 
     return count;
 }
 
-int OrderSystem::BatchComplete(PlayerState& player, int current_tick, int& out_gold,
-                               int& out_exp) {
-    out_gold = 0;
-    out_exp = 0;
-    int count = 0;
+Result<BatchCompleteResult> OrderSystem::BatchComplete(PlayerState& player, int current_tick) {
+    BatchCompleteResult result;
     for (std::size_t i = 0; i < orders_.size(); ++i) {
         OrderData& order = orders_[i];
         if (order.state != OrderState::Available || order.locked) continue;
-        // Check if player has all required items
         bool can_deliver = true;
         for (const OrderRequirement& req : order.requirements) {
             if (!player.HasItem(req.item, req.quantity)) {
@@ -111,14 +108,14 @@ int OrderSystem::BatchComplete(PlayerState& player, int current_tick, int& out_g
             }
         }
         if (!can_deliver) continue;
-        auto result = CompleteOrder(player, static_cast<int>(i), current_tick);
-        if (result.ok()) {
-            out_gold += order.reward_gold;
-            out_exp += order.reward_exp;
-            ++count;
+        auto r = CompleteOrder(player, static_cast<int>(i), current_tick);
+        if (r.ok()) {
+            result.gold_earned += order.reward_gold;
+            result.exp_earned += order.reward_exp;
+            ++result.completed;
         }
     }
-    return count;
+    return Result<BatchCompleteResult>::success(result);
 }
 
 Result<void> OrderSystem::SetLocked(int slot, bool locked) {
@@ -160,7 +157,6 @@ void OrderSystem::SetForLoad(const std::vector<OrderData>& orders, int next_orde
 std::vector<ItemId> OrderSystem::BuildItemPool(const PlayerState& player, Season season) const {
     std::vector<ItemId> pool;
 
-    // Crops — weighted higher (3× each), crops are the mainstay of orders
     if (player.IsSeedUnlocked(ItemId::WheatSeed))
         for (int i = 0; i < 3; ++i) pool.push_back(ItemId::Wheat);
     if (player.IsSeedUnlocked(ItemId::CornSeed))
@@ -170,7 +166,6 @@ std::vector<ItemId> OrderSystem::BuildItemPool(const PlayerState& player, Season
     if (player.IsSeedUnlocked(ItemId::TomatoSeed))
         for (int i = 0; i < 3; ++i) pool.push_back(ItemId::Tomato);
 
-    // Animal products — 1× each, rarer premium orders
     if (player.IsUnlocked(UnlockId::ChickenCoop) && player.IsUnlocked(UnlockId::Chicken))
         pool.push_back(ItemId::Egg);
     if (player.IsUnlocked(UnlockId::CowBarn) && player.IsUnlocked(UnlockId::Cow))
@@ -178,13 +173,11 @@ std::vector<ItemId> OrderSystem::BuildItemPool(const PlayerState& player, Season
     if (player.IsUnlocked(UnlockId::SheepPen) && player.IsUnlocked(UnlockId::Sheep))
         pool.push_back(ItemId::Wool);
 
-    // Workshop products (feed) — 1× each
     if (player.IsSeedUnlocked(ItemId::WheatSeed))
         pool.push_back(ItemId::ChickenFeed);
     if (player.IsSeedUnlocked(ItemId::CornSeed) && player.IsSeedUnlocked(ItemId::CarrotSeed))
         pool.push_back(ItemId::CowFeed);
 
-    // Processed goods — 1× each, available at required level
     if (player.Level() >= 2 && player.IsSeedUnlocked(ItemId::WheatSeed))
         pool.push_back(ItemId::Bread);
     if (player.Level() >= 3 && player.IsUnlocked(UnlockId::CowBarn) && player.IsUnlocked(UnlockId::Cow))
@@ -192,7 +185,6 @@ std::vector<ItemId> OrderSystem::BuildItemPool(const PlayerState& player, Season
     if (player.Level() >= 4 && player.IsSeedUnlocked(ItemId::TomatoSeed))
         pool.push_back(ItemId::Jam);
 
-    // Seasonal crop — 3× weight in its season (30% of orders)
     if (season == Season::Spring && player.IsSeedUnlocked(ItemId::StrawberrySeed))
         for (int i = 0; i < 3; ++i) pool.push_back(ItemId::Strawberry);
     if (season == Season::Summer && player.IsSeedUnlocked(ItemId::TomatoSeed))
@@ -206,7 +198,6 @@ std::vector<ItemId> OrderSystem::BuildItemPool(const PlayerState& player, Season
     return pool;
 }
 
-// Helper: pick a random-ish item from the pool using a deterministic mix
 namespace {
 ItemId PickFromPool(const std::vector<ItemId>& pool, int mix, int offset) {
     return pool[static_cast<std::size_t>((mix + offset) % static_cast<int>(pool.size()))];
@@ -214,7 +205,6 @@ ItemId PickFromPool(const std::vector<ItemId>& pool, int mix, int offset) {
 
 int QtyFor(ItemId item, int mix, int level) {
     switch (item) {
-        // Crops — level-gated quantities for early-game balance
         case ItemId::Wheat:
         case ItemId::Corn:
         case ItemId::Carrot:
@@ -222,19 +212,16 @@ int QtyFor(ItemId item, int mix, int level) {
         case ItemId::Strawberry:
         case ItemId::Pumpkin:
         case ItemId::Mushroom: {
-            if (level <= 1) return 1 + (mix % 3);              // Lv1: 1-3
-            if (level == 2) return 2 + (mix % 3);              // Lv2: 2-4
-            if (level == 3) return 3 + (mix % 4);              // Lv3: 3-6
-            return 4 + level + (mix % 5);                      // Lv4+: original scaling
+            if (level <= 1) return 1 + (mix % 3);
+            if (level == 2) return 2 + (mix % 3);
+            if (level == 3) return 3 + (mix % 4);
+            return 4 + level + (mix % 5);
         }
-        // Animal products — rarer, kept moderate
         case ItemId::Egg:         return 1 + level / 2 + (mix % 3);
         case ItemId::Milk:        return 1 + level / 3 + (mix % 2);
         case ItemId::Wool:        return 1 + (mix % 2);
-        // Feed — crafted, moderate quantities
         case ItemId::ChickenFeed: return 1 + level / 3 + (mix % 3);
         case ItemId::CowFeed:     return 1 + level / 3 + (mix % 2);
-        // Processed goods — high value, smaller quantities
         case ItemId::Bread:       return 1 + level / 2 + (mix % 3);
         case ItemId::Cheese:      return 1 + level / 3 + (mix % 2);
         case ItemId::Jam:         return 1 + level / 3 + (mix % 2);
@@ -248,10 +235,9 @@ void OrderSystem::RefreshOrder(int slot, const PlayerState& player, Season seaso
     ++sequence_;
     const int mix = sequence_ + slot * 11;
 
-    // --- New player protection: first 3 orders are wheat-only, quantity ≤ 2 ---
     if (next_order_id_ <= 3) {
         std::vector<OrderRequirement> reqs;
-        reqs.push_back({ItemId::Wheat, 1 + (mix % 2)});  // 1 or 2
+        reqs.push_back({ItemId::Wheat, 1 + (mix % 2)});
         OrderData order;
         order.id = next_order_id_++;
         order.requirements = reqs;
@@ -262,14 +248,12 @@ void OrderSystem::RefreshOrder(int slot, const PlayerState& player, Season seaso
         return;
     }
 
-    // Pick order category based on pool size and mix: 30% simple, 40% mixed, 30% themed
     const int category = mix % 10;
     std::vector<OrderRequirement> reqs;
     const char* label = "";
     int base_reward = 0;
 
     if (pool.size() >= 3 && category >= 3 && category < 7) {
-        // --- Mixed order: 2 different items ---
         ItemId item1 = PickFromPool(pool, mix, 0);
         ItemId item2;
         int tries = 0;
@@ -285,8 +269,6 @@ void OrderSystem::RefreshOrder(int slot, const PlayerState& player, Season seaso
         label = "混合订单";
         base_reward = 5;
     } else if (pool.size() >= 4 && category >= 7) {
-        // --- Themed order: 2 items that make sense together ---
-        // Pick a theme based on what's available
         const bool has_wheat = player.IsSeedUnlocked(ItemId::WheatSeed);
         const bool has_corn = player.IsSeedUnlocked(ItemId::CornSeed);
         const bool has_carrot = player.IsSeedUnlocked(ItemId::CarrotSeed);
@@ -295,7 +277,6 @@ void OrderSystem::RefreshOrder(int slot, const PlayerState& player, Season seaso
         const bool has_wool = player.IsUnlocked(UnlockId::SheepPen) && player.IsUnlocked(UnlockId::Sheep);
         const bool has_tomato = player.IsSeedUnlocked(ItemId::TomatoSeed);
 
-        // Build themed options
         struct Theme { const char* name; std::vector<OrderRequirement> reqs; int bonus; };
         std::vector<Theme> themes;
 
@@ -314,7 +295,6 @@ void OrderSystem::RefreshOrder(int slot, const PlayerState& player, Season seaso
         if (has_wool && has_wheat)
             themes.push_back({"纺织原料包", {{ItemId::Wool, 2}, {ItemId::Wheat, 6}}, 15});
 
-        // Processed goods themes (player level >= recipe min level)
         const bool has_bread = player.Level() >= 2 && has_wheat;
         const bool has_cheese = player.Level() >= 3 && has_milk;
         const bool has_jam = player.Level() >= 4 && has_tomato;
@@ -337,14 +317,12 @@ void OrderSystem::RefreshOrder(int slot, const PlayerState& player, Season seaso
             label = theme.name;
             base_reward = theme.bonus;
         } else {
-            // Fallback to simple
             ItemId item = PickFromPool(pool, mix, 0);
             reqs.push_back({item, QtyFor(item, mix, player.Level())});
             label = "采购订单";
             base_reward = 2;
         }
     } else {
-        // --- Simple order: single item ---
         ItemId item = PickFromPool(pool, mix, 0);
         reqs.push_back({item, QtyFor(item, mix, player.Level())});
         label = "采购订单";
@@ -354,7 +332,6 @@ void OrderSystem::RefreshOrder(int slot, const PlayerState& player, Season seaso
     OrderData order;
     order.id = next_order_id_++;
     order.requirements = reqs;
-    // Winter bonus: +50% rewards
     float winter_mult = (season == Season::Winter) ? 1.5f : 1.0f;
     order.reward_gold = static_cast<int>((RewardGold(reqs) + base_reward) * winter_mult);
     order.reward_exp = static_cast<int>((4 + base_reward + player.Level()) * winter_mult);

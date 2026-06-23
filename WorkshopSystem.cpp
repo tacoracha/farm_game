@@ -7,6 +7,11 @@
 
 namespace farm {
 
+void WorkshopSystem::Setup(AchievementSystem* ach, DailyTaskSystem* dts) {
+    ach_ = ach;
+    dts_ = dts;
+}
+
 WorkshopView WorkshopSystem::View() const {
     return WorkshopView{static_cast<int>(queue_.size()), kFeedMillQueueCapacity,
                         shelf_chicken_feed_ + shelf_cow_feed_ + shelf_bread_ + shelf_cheese_ +
@@ -14,6 +19,17 @@ WorkshopView WorkshopSystem::View() const {
                         shelf_chicken_feed_, shelf_cow_feed_, shelf_bread_, shelf_cheese_,
                         shelf_jam_, kFeedMillShelfCapacity,
                         queue_.empty() ? 0 : queue_.front().remaining_ticks};
+}
+
+int WorkshopSystem::ShelfCount(ItemId product) const {
+    switch (product) {
+        case ItemId::ChickenFeed: return shelf_chicken_feed_;
+        case ItemId::CowFeed:     return shelf_cow_feed_;
+        case ItemId::Bread:       return shelf_bread_;
+        case ItemId::Cheese:      return shelf_cheese_;
+        case ItemId::Jam:         return shelf_jam_;
+        default:                  return 0;
+    }
 }
 
 int WorkshopSystem::MinLevelFor(RecipeId recipe) {
@@ -65,7 +81,6 @@ Result<void> WorkshopSystem::StartProduction(PlayerState& player, RecipeId recip
         return Result<void>::failure(ErrorCode::ProductionQueueFull);
     }
 
-    // Consume inputs
     std::vector<ItemStack> inputs;
     switch (recipe) {
         case RecipeId::ChickenFeed:
@@ -97,7 +112,6 @@ Result<void> WorkshopSystem::StartProduction(PlayerState& player, RecipeId recip
 }
 
 Result<void> WorkshopSystem::ClaimProduct(PlayerState& player) {
-    // Pick first available shelf item
     ItemId item;
     if (shelf_chicken_feed_ > 0) {
         item = ItemId::ChickenFeed;
@@ -116,7 +130,6 @@ Result<void> WorkshopSystem::ClaimProduct(PlayerState& player) {
     if (!added.ok()) {
         return added;
     }
-    // Decrement the appropriate shelf
     switch (item) {
         case ItemId::ChickenFeed: --shelf_chicken_feed_; break;
         case ItemId::CowFeed:     --shelf_cow_feed_;     break;
@@ -146,14 +159,12 @@ void WorkshopSystem::Tick(PlayerState& player) {
     if (queue_.front().remaining_ticks <= 0) {
         RecipeId recipe = queue_.front().recipe;
         ItemId product = ProductFor(recipe);
-        // Try auto-collect to warehouse first
         if (player.TryAddItem(product, 1).ok()) {
             queue_.erase(queue_.begin());
-            AchievementSystem::Instance().OnProcessItem();
-            DailyTaskSystem::Instance().OnProcessFeed(1);
+            if (ach_) ach_->OnProcessItem();
+            if (dts_) dts_->OnProcessFeed(1);
             return;
         }
-        // Warehouse full — fall back to shelf
         if (shelf_chicken_feed_ + shelf_cow_feed_ + shelf_bread_ + shelf_cheese_ +
                 shelf_jam_ < kFeedMillShelfCapacity) {
             switch (recipe) {
@@ -164,8 +175,8 @@ void WorkshopSystem::Tick(PlayerState& player) {
                 case RecipeId::Jam:         ++shelf_jam_;          break;
             }
             queue_.erase(queue_.begin());
-            AchievementSystem::Instance().OnProcessItem();
-            DailyTaskSystem::Instance().OnProcessFeed(1);
+            if (ach_) ach_->OnProcessItem();
+            if (dts_) dts_->OnProcessFeed(1);
         }
     }
 }

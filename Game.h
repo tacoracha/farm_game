@@ -1,7 +1,11 @@
 #pragma once
 
+#include "farm/achievement/AchievementSystem.h"
 #include "farm/common/Types.h"
+#include "farm/dailytask/DailyTaskSystem.h"
+#include "farm/fishing/FishingSystem.h"
 #include "farm/inventory/PlayerState.h"
+#include "farm/merchant/TravelingMerchantSystem.h"
 #include "farm/order/OrderSystem.h"
 #include "farm/planting/PlantingSystem.h"
 #include "farm/ranch/RanchSystem.h"
@@ -118,6 +122,14 @@ public:
     const OrderSystem& Orders() const { return orders_; }
     ShopSystem& Shop() { return shop_; }
     const ShopSystem& Shop() const { return shop_; }
+    FishingSystem& Fishing() { return fishing_; }
+    const FishingSystem& Fishing() const { return fishing_; }
+    AchievementSystem& Achievements() { return achievements_; }
+    const AchievementSystem& Achievements() const { return achievements_; }
+    DailyTaskSystem& DailyTasks() { return daily_tasks_; }
+    const DailyTaskSystem& DailyTasks() const { return daily_tasks_; }
+    TravelingMerchantSystem& Merchant() { return merchant_; }
+    const TravelingMerchantSystem& Merchant() const { return merchant_; }
 
     void AdvanceTicks(int count);
     Result<void> AdvanceBySpeed();
@@ -138,6 +150,8 @@ public:
     void PruneToasts(int current_tick);
 
 private:
+    friend class SaveManager;
+
     void MaybeTriggerRandomEvent();
 
     TimeSystem time_;
@@ -149,6 +163,10 @@ private:
     WorkshopSystem workshop_;
     OrderSystem orders_;
     ShopSystem shop_;
+    FishingSystem fishing_;
+    AchievementSystem achievements_;
+    DailyTaskSystem daily_tasks_;
+    TravelingMerchantSystem merchant_;
     int last_auto_save_tick_ = 0;
     int last_random_event_tick_ = 0;
     std::string last_event_message_;

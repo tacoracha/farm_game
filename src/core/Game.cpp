@@ -1,12 +1,64 @@
 #include "farm/core/Game.h"
 
+#include "farm/achievement/AchievementSystem.h"
 #include "farm/common/Constants.h"
+#include "farm/dailytask/DailyTaskSystem.h"
+#include "farm/fishing/FishingSystem.h"
+#include "farm/merchant/TravelingMerchantSystem.h"
 #include "farm/persistence/SaveManager.h"
 
 #include <algorithm>
 #include <cstdlib>
 
 namespace farm {
+
+float CropSpeed(Season s) {
+    switch (s) { case Season::Spring: return 1.15f; case Season::Summer: return 1.0f; case Season::Autumn: return 1.0f; case Season::Winter: return 0.6f; }
+    return 1.0f;
+}
+float CropYield(Season s) {
+    switch (s) { case Season::Spring: return 1.0f; case Season::Summer: return 1.0f; case Season::Autumn: return 1.2f; case Season::Winter: return 0.8f; }
+    return 1.0f;
+}
+float RanchSpeed(Season s) {
+    switch (s) { case Season::Spring: return 1.0f; case Season::Summer: return 0.9f; case Season::Autumn: return 1.0f; case Season::Winter: return 0.8f; }
+    return 1.0f;
+}
+
+const char* SeasonName(Season s) {
+    switch (s) { case Season::Spring: return "春季"; case Season::Summer: return "夏季"; case Season::Autumn: return "秋季"; case Season::Winter: return "冬季"; }
+    return "";
+}
+
+ItemId SeasonCrop(Season s) {
+    switch (s) { case Season::Spring: return ItemId::Strawberry; case Season::Summer: return ItemId::Tomato; case Season::Autumn: return ItemId::Pumpkin; case Season::Winter: return ItemId::Mushroom; }
+    return ItemId::Wheat;
+}
+
+void SeasonSystem::Tick(int current_tick) {
+    current_tick_ = current_tick;
+    just_changed_ = false;
+    if (season_start_tick_ == 0) season_start_tick_ = current_tick;
+    if (current_tick - season_start_tick_ >= kSeasonDurationTicks) {
+        int old = static_cast<int>(season_);
+        season_ = static_cast<Season>((old + 1) % 4);
+        season_start_tick_ = current_tick;
+        just_changed_ = true;
+    }
+}
+
+SeasonSnapshot SeasonSystem::Snapshot() const {
+    int elapsed = current_tick_ - season_start_tick_;
+    int remaining = std::max(0, kSeasonDurationTicks - elapsed);
+    return SeasonSnapshot{season_, elapsed, remaining,
+                          CropSpeed(season_), CropYield(season_), RanchSpeed(season_)};
+}
+
+void SeasonSystem::SetForLoad(Season season, int season_start_tick) {
+    season_ = season;
+    season_start_tick_ = season_start_tick;
+    just_changed_ = false;
+}
 
 TimeSnapshot TimeSystem::Snapshot() const {
     const int day = tick_ / kTicksPerDay + 1;
@@ -21,30 +73,18 @@ WeatherSnapshot WeatherSystem::Snapshot() const {
     float crop = 1.0f;
     float ranch = 1.0f;
     switch (weather_) {
-        case WeatherType::Sunny:
-            crop = 1.0f;
-            ranch = 1.0f;
-            break;
-        case WeatherType::Rainy:
-            crop = 1.35f;
-            ranch = 1.0f;
-            break;
-        case WeatherType::Cloudy:
-            crop = 1.1f;
-            ranch = 1.0f;
-            break;
-        case WeatherType::Drought:
-            crop = 0.65f;
-            ranch = 0.9f;
-            break;
+        case WeatherType::Sunny:   crop = 1.0f;  ranch = 1.0f;  break;
+        case WeatherType::Rainy:   crop = 1.35f; ranch = 1.0f;  break;
+        case WeatherType::Cloudy:  crop = 1.1f;  ranch = 1.0f;  break;
+        case WeatherType::Drought: crop = 0.65f; ranch = 0.9f;  break;
     }
     return WeatherSnapshot{weather_, remaining_ticks_, crop, ranch};
 }
 
-void WeatherSystem::Tick(int current_tick) {
+void WeatherSystem::Tick(int current_tick, Season season) {
     --remaining_ticks_;
     if (remaining_ticks_ <= 0) {
-        ChooseNext(current_tick);
+        ChooseNext(current_tick, season);
     }
 }
 
@@ -53,26 +93,144 @@ void WeatherSystem::SetForLoad(WeatherType weather, int remaining_ticks) {
     remaining_ticks_ = std::max(1, remaining_ticks);
 }
 
-void WeatherSystem::ChooseNext(int current_tick) {
-    const int pick = std::abs(current_tick * 37 + 13) % 4;
-    weather_ = static_cast<WeatherType>(pick);
+void WeatherSystem::ChooseNext(int current_tick, Season season) {
+    const int r = std::abs(current_tick * 37 + 13) % 100;
+    switch (season) {
+        case Season::Spring:
+            if (r < 40) weather_ = WeatherType::Sunny;
+            else if (r < 75) weather_ = WeatherType::Rainy;
+            else if (r < 95) weather_ = WeatherType::Cloudy;
+            else weather_ = WeatherType::Drought;
+            break;
+        case Season::Summer:
+            if (r < 30) weather_ = WeatherType::Sunny;
+            else if (r < 50) weather_ = WeatherType::Rainy;
+            else if (r < 70) weather_ = WeatherType::Cloudy;
+            else weather_ = WeatherType::Drought;
+            break;
+        case Season::Autumn:
+            if (r < 50) weather_ = WeatherType::Sunny;
+            else if (r < 75) weather_ = WeatherType::Rainy;
+            else if (r < 100) weather_ = WeatherType::Cloudy;
+            else weather_ = WeatherType::Drought;
+            break;
+        case Season::Winter:
+            if (r < 60) weather_ = WeatherType::Sunny;
+            else if (r < 70) weather_ = WeatherType::Rainy;
+            else if (r < 90) weather_ = WeatherType::Cloudy;
+            else weather_ = WeatherType::Drought;
+            break;
+    }
     remaining_ticks_ = 120 + (current_tick % 120);
 }
 
 Game::Game() = default;
 
-Game Game::NewGame() { return Game{}; }
+Game Game::NewGame() {
+    Game g;
+
+    // Initialize singleton-style systems (now owned by Game)
+    g.achievements_.Init();
+    g.daily_tasks_.Init();
+    g.merchant_.Init();
+    g.fishing_.Init();
+
+    // Wire up event system pointers
+    g.player_.Setup(&g.achievements_);
+    g.planting_.Setup(&g.achievements_, &g.daily_tasks_);
+    g.ranch_.Setup(&g.achievements_, &g.daily_tasks_);
+    g.workshop_.Setup(&g.achievements_, &g.daily_tasks_);
+    g.orders_.Setup(&g.achievements_, &g.daily_tasks_);
+
+    return g;
+}
 
 void Game::AdvanceTicks(int count) {
+    const int mature_before = planting_.MatureCount();
+    const int ready_before = ranch_.ReadyProductCount();
+    std::vector<int> order_ids_before;
+    for (const OrderData& o : orders_.Orders()) {
+        if (o.id != 0) order_ids_before.push_back(o.id);
+    }
+
     for (int i = 0; i < count; ++i) {
         time_.AdvanceOneTick();
-        weather_.Tick(time_.CurrentTick());
+        season_.Tick(time_.CurrentTick());
+        weather_.Tick(time_.CurrentTick(), season_.Current());
         const WeatherSnapshot weather = weather_.Snapshot();
-        planting_.Tick(time_.CurrentTick(), weather.crop_multiplier);
-        ranch_.Tick(time_.CurrentTick(), weather.ranch_multiplier);
-        workshop_.Tick();
-        orders_.Tick(time_.CurrentTick());
+        const SeasonSnapshot ssnap = season_.Snapshot();
+        float crop_mod = weather.crop_multiplier * ssnap.crop_speed;
+        float ranch_mod = weather.ranch_multiplier * ssnap.ranch_speed;
+        if (time_.CurrentTick() < event_until_tick_) {
+            if (event_ranch_penalty_ > 0) ranch_mod *= (1.0f - event_ranch_penalty_ / 100.0f);
+        }
+        planting_.SetSummerDrought(weather.weather == WeatherType::Drought &&
+                                   season_.Current() == Season::Summer);
+        planting_.SetAutumnDouble(season_.Current() == Season::Autumn);
+        planting_.Tick(time_.CurrentTick(), crop_mod);
+        ranch_.Tick(time_.CurrentTick(), ranch_mod);
+        if (event_auto_water_ && time_.CurrentTick() < event_until_tick_) {
+            planting_.BatchWater(time_.CurrentTick());
+        }
+        workshop_.Tick(player_);
+        orders_.Tick(time_.CurrentTick(), player_, season_.Current());
+        daily_tasks_.Tick(time_.CurrentTick(), player_);
+        merchant_.Tick(time_.CurrentTick());
+        fishing_.Tick(time_.CurrentTick());
         MaybeTriggerRandomEvent();
+    }
+
+    if (season_.JustChanged()) {
+        achievements_.OnSeasonChange(season_.Current());
+        std::string msg = std::string("季节更替：进入") + SeasonName(season_.Current()) + "！";
+        int withered = planting_.WitherNonSeasonal(season_.Current());
+        if (withered > 0) {
+            msg += " " + std::to_string(withered) + " 块地作物枯萎了。";
+        }
+        EnqueueToast(msg, 2, time_.CurrentTick() + 80);
+        season_.ClearJustChanged();
+    }
+
+    int total_animals = 0, chicken_count = 0;
+    for (const auto& f : ranch_.Facilities()) {
+        for (const auto& a : f.animals) {
+            ++total_animals;
+            if (a.kind == AnimalKind::Chicken) ++chicken_count;
+        }
+    }
+    achievements_.CheckPeriodic(time_.CurrentTick(), total_animals,
+                                chicken_count, player_.WarehouseCapacity(),
+                                player_.WarehouseUsed());
+
+    const SeasonSnapshot ssnap = season_.Snapshot();
+    if (ssnap.ticks_remaining == 12) {
+        farm::Season next = static_cast<farm::Season>((static_cast<int>(season_.Current()) + 1) % 4);
+        EnqueueToast(std::string("距离") + SeasonName(next) + "还有 12 刻，请及时收获作物！", 2, time_.CurrentTick() + 40);
+    }
+
+    const int current = time_.CurrentTick();
+
+    const int mature_after = planting_.MatureCount();
+    if (mature_after > mature_before) {
+        EnqueueToast("有 " + std::to_string(mature_after) + " 块地作物成熟了！", 0, current + 25);
+    }
+
+    const int ready_after = ranch_.ReadyProductCount();
+    if (ready_after > ready_before) {
+        EnqueueToast("有 " + std::to_string(ready_after) + " 个动物产品可以收获了！", 0, current + 25);
+    }
+
+    int new_order_count = 0;
+    for (const OrderData& o : orders_.Orders()) {
+        if (o.id == 0) continue;
+        bool existed = false;
+        for (int old_id : order_ids_before) {
+            if (old_id == o.id) { existed = true; break; }
+        }
+        if (!existed) ++new_order_count;
+    }
+    if (new_order_count > 0) {
+        EnqueueToast("有 " + std::to_string(new_order_count) + " 个新订单已刷新！", 2, current + 25);
     }
 }
 
@@ -126,19 +284,74 @@ void Game::MaybeTriggerRandomEvent() {
     if (time_.CurrentTick() - last_random_event_tick_ < kRandomEventIntervalTicks) {
         return;
     }
+    if (time_.CurrentTick() >= event_until_tick_) {
+        event_crop_yield_bonus_ = 0;
+        event_ranch_penalty_ = 0;
+        event_auto_water_ = false;
+    }
+
     last_random_event_tick_ = time_.CurrentTick();
-    const int pick = (time_.CurrentTick() * 17 + player_.Level() * 5) % 3;
-    if (pick == 0) {
-        player_.AddGold(12);
-        last_event_message_ = "随机事件：路边小摊买走了一些农产品，获得 12 金币。";
-    } else if (pick == 1) {
-        (void)player_.TryAddItem(ItemId::Fertilizer, 1);
-        last_event_message_ = "随机事件：邻居送来 1 份肥料。";
-    } else {
-        weather_.SetForLoad(WeatherType::Rainy, 120);
-        last_event_message_ = "随机事件：一阵小雨经过，作物成长更快。";
+    const int pick = (time_.CurrentTick() * 17 + player_.Level() * 5) % 4;
+    farm::Season s = season_.Current();
+    int dur = 24;
+
+    switch (s) {
+        case Season::Spring:
+            if (pick == 0) {
+                event_auto_water_ = true; event_until_tick_ = time_.CurrentTick() + 6;
+                last_event_message_ = "春雨绵绵：接下来 6 刻所有作物自动浇水！";
+            } else {
+                player_.AddGold(12);
+                last_event_message_ = "路边小摊买走了一些农产品，获得 12 金币。";
+            }
+            break;
+        case Season::Summer:
+            if (pick == 0) {
+                event_ranch_penalty_ = 20; event_until_tick_ = time_.CurrentTick() + dur;
+                last_event_message_ = "酷暑：动物生产速度 -20%，持续 24 刻。";
+            } else if (pick == 1) {
+                player_.AddGold(25);
+                last_event_message_ = "西瓜商人高价收购！获得 25 金币。";
+            } else {
+                player_.AddGold(12);
+                last_event_message_ = "路边小摊买走了一些农产品，获得 12 金币。";
+            }
+            break;
+        case Season::Autumn:
+            if (pick == 0) {
+                event_crop_yield_bonus_ = 50; event_until_tick_ = time_.CurrentTick() + dur;
+                last_event_message_ = "丰收节：所有作物产量 +50%，持续 24 刻！";
+            } else {
+                (void)player_.TryAddItem(ItemId::Fertilizer, 2);
+                last_event_message_ = "落叶时节：邻居送来 2 份肥料。";
+            }
+            break;
+        case Season::Winter:
+            if (pick == 0) {
+                player_.AddGold(100);
+                (void)player_.TryAddItem(ItemId::Fertilizer, 5);
+                last_event_message_ = "圣诞节：获得 100 金币和 5 个肥料！";
+            } else {
+                player_.AddGold(23);
+                last_event_message_ = "暴风雪后清理：获得 23 金币补偿。";
+            }
+            break;
+    }
+    EnqueueToast(last_event_message_, 2, time_.CurrentTick() + 50);
+}
+
+void Game::EnqueueToast(const std::string& text, int color, int until_tick) {
+    toast_queue_.push_back({text, color, until_tick});
+    if (toast_queue_.size() > 8) {
+        toast_queue_.erase(toast_queue_.begin());
     }
 }
 
-}  // namespace farm
+void Game::PruneToasts(int current_tick) {
+    toast_queue_.erase(
+        std::remove_if(toast_queue_.begin(), toast_queue_.end(),
+                       [current_tick](const ToastMessage& t) { return t.until_tick <= current_tick; }),
+        toast_queue_.end());
+}
 
+}  // namespace farm

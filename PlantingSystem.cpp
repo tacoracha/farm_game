@@ -14,10 +14,15 @@ namespace farm {
 PlantingSystem::PlantingSystem()
     : plots_(static_cast<std::size_t>(kInitialPlotCount)) {}
 
-std::vector<PlotView> PlantingSystem::GreenhouseView(const PlantingSystem& self, int current_tick) {
+void PlantingSystem::Setup(AchievementSystem* ach, DailyTaskSystem* dts) {
+    ach_ = ach;
+    dts_ = dts;
+}
+
+std::vector<PlotView> PlantingSystem::GreenhouseView(int current_tick) const {
     std::vector<PlotView> view;
-    for (std::size_t i = 0; i < self.greenhouse_plots_.size(); ++i) {
-        const PlotData& plot = self.greenhouse_plots_[i];
+    for (std::size_t i = 0; i < greenhouse_plots_.size(); ++i) {
+        const PlotData& plot = greenhouse_plots_[i];
         const int remaining = plot.state == PlotState::Growing
                                   ? std::max(0, plot.mature_tick - current_tick) : 0;
         view.push_back(PlotView{static_cast<int>(i), plot.state, plot.water, plot.crop, remaining, plot.fertilized});
@@ -52,7 +57,7 @@ int PlantingSystem::MatureCount() const {
 bool PlantingSystem::CanPlantInSeason(ItemId seed, Season season) {
     switch (seed) {
         case ItemId::WheatSeed: case ItemId::CornSeed: case ItemId::CarrotSeed:
-            return season != Season::Winter;  // Basic crops: spring/summer/autumn
+            return season != Season::Winter;
         case ItemId::StrawberrySeed: return season == Season::Spring;
         case ItemId::TomatoSeed:     return season == Season::Summer;
         case ItemId::PumpkinSeed:    return season == Season::Autumn;
@@ -167,8 +172,8 @@ Result<void> PlantingSystem::Harvest(PlayerState& player, int plot_id) {
     }
     ItemId harvested_crop = plot.crop;
     plot = PlotData{};
-    AchievementSystem::Instance().OnHarvestCrop(harvested_crop);
-    DailyTaskSystem::Instance().OnHarvestCrop(1);
+    if (ach_) ach_->OnHarvestCrop(harvested_crop);
+    if (dts_) dts_->OnHarvestCrop(1);
     return Result<void>::success();
 }
 
@@ -197,20 +202,19 @@ int PlantingSystem::WitherNonSeasonal(Season new_season) {
     int withered = 0;
     for (PlotData& plot : plots_) {
         if (plot.state != PlotState::Growing && plot.state != PlotState::Mature) continue;
-        // Find the seed for this crop
         ItemId seed = ItemId::WheatSeed;
         switch (plot.crop) {
-            case ItemId::Wheat: seed = ItemId::WheatSeed; break;
-            case ItemId::Corn: seed = ItemId::CornSeed; break;
-            case ItemId::Carrot: seed = ItemId::CarrotSeed; break;
-            case ItemId::Tomato: seed = ItemId::TomatoSeed; break;
+            case ItemId::Wheat:      seed = ItemId::WheatSeed;      break;
+            case ItemId::Corn:       seed = ItemId::CornSeed;       break;
+            case ItemId::Carrot:     seed = ItemId::CarrotSeed;     break;
+            case ItemId::Tomato:     seed = ItemId::TomatoSeed;     break;
             case ItemId::Strawberry: seed = ItemId::StrawberrySeed; break;
-            case ItemId::Pumpkin: seed = ItemId::PumpkinSeed; break;
-            case ItemId::Mushroom: seed = ItemId::MushroomSeed; break;
+            case ItemId::Pumpkin:    seed = ItemId::PumpkinSeed;    break;
+            case ItemId::Mushroom:   seed = ItemId::MushroomSeed;   break;
             default: break;
         }
         if (!CanPlantInSeason(seed, new_season)) {
-            plot = PlotData{};  // Wither
+            plot = PlotData{};
             ++withered;
         }
     }
@@ -291,7 +295,6 @@ static Result<void> PlantGreenhouseAt(PlayerState& player, std::vector<PlotData>
     plot.water = PlotWaterState::Dry;
     plot.crop = CropFromSeed(seed);
     plot.planted_tick = current_tick;
-    // +10% faster in greenhouse
     plot.mature_tick = current_tick + static_cast<int>(info.grow_ticks / kGreenhouseGrowthBonus);
     plot.fertilized = false;
     plot.growth_remainder = 0.0f;
@@ -381,7 +384,6 @@ void PlantingSystem::Tick(int current_tick, float weather_growth_multiplier) {
         while (plot.growth_remainder >= 1.0f) { --plot.mature_tick; plot.growth_remainder -= 1.0f; }
         while (plot.growth_remainder <= -1.0f) { ++plot.mature_tick; plot.growth_remainder += 1.0f; }
     }
-    // Greenhouse: immune to weather/season, +10% base bonus
     const float gh_mult = std::max(0.1f, kGreenhouseGrowthBonus);
     for (PlotData& plot : greenhouse_plots_) {
         if (plot.state != PlotState::Growing) continue;

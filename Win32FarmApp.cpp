@@ -895,10 +895,10 @@ void FarmWindow::DrawTabs(HDC hdc) {
     tab(kTabWarehouse, L"仓库");
     tab(kTabShop, L"商店");
     tab(kTabUnlock, L"解锁", 56);
-    tab(kTabDailyTask, DailyTaskSystem::Instance().HasNewComplete() ? L"任务●" : L"任务", 56);
-    tab(kTabAchieve, AchievementSystem::Instance().HasNew() ? L"成就●" : L"成就", 56);
+    tab(kTabDailyTask, game_.DailyTasks().HasNewComplete() ? L"任务●" : L"任务", 56);
+    tab(kTabAchieve, game_.Achievements().HasNew() ? L"成就●" : L"成就", 56);
     tab(kTabFishing, L"钓鱼", 56);
-    if (TravelingMerchantSystem::Instance().IsPresent())
+    if (game_.Merchant().IsPresent())
         tab(kTabMerchant, L"商人!", 56);
     tab(kTabSave, L"存档", 56);
     // Control buttons on the right
@@ -921,7 +921,7 @@ void FarmWindow::DrawFarm(HDC hdc) {
         }
     }
     const bool is_gh = show_greenhouse_ && gh_unlocked;
-    const auto plots = is_gh ? PlantingSystem::GreenhouseView(game_.Planting(), game_.Time().CurrentTick())
+    const auto plots = is_gh ? game_.Planting().GreenhouseView(game_.Time().CurrentTick())
                               : game_.Planting().View(game_.Time().CurrentTick());
     Text(hdc, 200, 142, is_gh ? L"温室 (不受季节/天气影响)" : L"农田地块");
     for (std::size_t i = 0; i < plots.size(); ++i) {
@@ -1169,7 +1169,7 @@ void FarmWindow::DrawShop(HDC hdc) {
     DrawTextureOrFill(hdc, L"shop_card", bait_card, RGB(252, 248, 235));
     DrawTextureOrFill(hdc, ItemTextureKey(ItemId::Fertilizer), RECT{bx + 10, y + 6, bx + 44, y + 40}, RGB(226, 196, 126));
     std::wstringstream bl;
-    bl << L"鱼饵  " << (bqty * 3) << L"金  (拥有:" << FishingSystem::Instance().BaitCount() << L")";
+    bl << L"鱼饵  " << (bqty * 3) << L"金  (拥有:" << game_.Fishing().BaitCount() << L")";
     Text(hdc, bx + 52, y + 8, bl.str());
     Text(hdc, bx + 52, y + 28, L"3金/个  钓鱼消耗品");
     Button(hdc, kBuyBait, RECT{bx + 220, y + 6, bx + 280, y + 42}, L"购买");
@@ -1259,12 +1259,12 @@ void FarmWindow::OnButton(int id) {
     }
     if (id == kTabDailyTask) {
         screen_ = Screen::DailyTask;
-        DailyTaskSystem::Instance().ClearNewFlag();
+        game_.DailyTasks().ClearNewFlag();
         return;
     }
     if (id == kTabAchieve) {
         screen_ = Screen::Achieve;
-        AchievementSystem::Instance().ClearNewFlag();
+        game_.Achievements().ClearNewFlag();
         return;
     }
     if (id >= kTabFarm && id <= kTabSave) {
@@ -1451,9 +1451,10 @@ void FarmWindow::OnButton(int id) {
             return;
         }
     } else if (id == kBatchCompleteOrder) {
-        int gold = 0, exp = 0;
-        int count = game_.Orders().BatchComplete(game_.Player(), game_.Time().CurrentTick(),
-                                                  gold, exp);
+        auto batch_result = game_.Orders().BatchComplete(game_.Player(), game_.Time().CurrentTick());
+        int count = batch_result.ok() ? batch_result.value.completed : 0;
+        int gold = batch_result.ok() ? batch_result.value.gold_earned : 0;
+        int exp = batch_result.ok() ? batch_result.value.exp_earned : 0;
         if (count > 0) {
             SetMessage(L"成功交付 " + std::to_wstring(count) + L" 个订单，获得 " +
                        std::to_wstring(gold) + L" 金币和 " + std::to_wstring(exp) + L" 经验！");
@@ -1497,7 +1498,7 @@ void FarmWindow::OnButton(int id) {
         if (game_.Player().Gold() < cost) { SetMessage(L"金币不足，无法购买！"); return; }
         auto spent = game_.Player().TrySpendGold(cost);
         if (spent.ok()) {
-            FishingSystem::Instance().AddBait(shop_qtys_[6]);
+            game_.Fishing().AddBait(shop_qtys_[6]);
             SetMessage(L"购买成功！已获得鱼饵 x" + std::to_wstring(shop_qtys_[6]));
         }
         return;
@@ -1550,7 +1551,7 @@ void FarmWindow::OnButton(int id) {
     } else if (id == kLoad) {
         result = game_.Load(Narrow(SavePath()));
     } else if (id == kCastLine) {
-        auto& fs2 = FishingSystem::Instance();
+        auto& fs2 = game_.Fishing();
         if (fs2.BaitCount() <= 0) { SetMessage(L"鱼饵不足，无法抛竿！"); return; }
         if (fs2.State() != FishingState::Idle) { SetMessage(L"请先完成上一次钓鱼。"); return; }
         fs2.CastLine(game_.Time().CurrentTick());
@@ -1558,10 +1559,10 @@ void FarmWindow::OnButton(int id) {
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     } else if (id == kReelIn) {
-        auto& fs3 = FishingSystem::Instance();
+        auto& fs3 = game_.Fishing();
         if (fs3.State() != FishingState::Biting) return;
-        bool caught = fs3.TryReelIn(game_.Time().CurrentTick());
-        if (caught) {
+        auto caught = fs3.TryReelIn(game_.Time().CurrentTick());
+        if (caught.ok()) {
             int fish_id = fs3.LastCaughtFish();
             const FishDef* f = fs3.GetFishDef(fish_id);
             if (f) {
@@ -1577,7 +1578,7 @@ void FarmWindow::OnButton(int id) {
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     } else if (id == kFishUpgradeRod) {
-        auto& fs4 = FishingSystem::Instance();
+        auto& fs4 = game_.Fishing();
         int cost = fs4.RodUpgradeCost();
         if (cost == 0) { SetMessage(L"鱼竿已达最高等级 Lv5！"); return; }
         auto spent = game_.Player().TrySpendGold(cost);
@@ -1591,9 +1592,9 @@ void FarmWindow::OnButton(int id) {
         show_fishpedia_ = !show_fishpedia_;
         return;
     } else if (id >= kMerchantBuyBase && id < kMerchantBuyBase + 10) {
-        result = TravelingMerchantSystem::Instance().BuyFromMerchant(game_.Player(), id - kMerchantBuyBase);
+        result = game_.Merchant().BuyFromMerchant(game_.Player(), id - kMerchantBuyBase);
     } else if (id >= kMerchantSellBase && id < kMerchantSellBase + 10) {
-        result = TravelingMerchantSystem::Instance().SellToMerchant(game_.Player(), id - kMerchantSellBase);
+        result = game_.Merchant().SellToMerchant(game_.Player(), id - kMerchantSellBase);
     } else if (id == kNewGame) {
         game_ = Game::NewGame();
         SetMessage(L"新游戏已开始。");
@@ -1623,7 +1624,7 @@ void FarmWindow::DrawToasts(HDC hdc) {
         std::wstring wtext = Utf8ToWide(t.text);
         SIZE ts;
         GetTextExtentPoint32W(hdc, wtext.c_str(), static_cast<int>(wtext.size()), &ts);
-        int w = std::min(ts.cx + 24, 450);
+        int w = (std::min)(static_cast<int>(ts.cx) + 24, 450);
         int x = kDesignW - w - 16;
         RECT r{x, y, x + w, y + 22};
         Fill(hdc, r, bg);
@@ -1637,7 +1638,7 @@ void FarmWindow::DrawToasts(HDC hdc) {
 }
 
 void FarmWindow::DrawAchievements(HDC hdc) {
-    auto& ach = AchievementSystem::Instance();
+    auto& ach = game_.Achievements();
     const auto& all = ach.All();
     if (all.empty()) { Text(hdc, 60, 175, L"成就系统未初始化。"); return; }
 
@@ -1747,7 +1748,7 @@ void FarmWindow::DrawAchievements(HDC hdc) {
 }
 
 void FarmWindow::DrawFishing(HDC hdc) {
-    auto& fs = FishingSystem::Instance();
+    auto& fs = game_.Fishing();
     // Fishpedia overlay
     if (show_fishpedia_) {
         DrawPanelFrame(hdc, L"鱼类图鉴", kPanelX + 100, kPanelY, 620, kPanelH);
@@ -1848,7 +1849,7 @@ void FarmWindow::DrawFishing(HDC hdc) {
 }
 
 void FarmWindow::DrawMerchant(HDC hdc) {
-    auto& mer = TravelingMerchantSystem::Instance();
+    auto& mer = game_.Merchant();
     if (!mer.IsPresent()) { screen_ = Screen::Farm; return; }
     DrawPanelFrame(hdc, L"旅行商人", kPanelX, kPanelY, kPanelW, kPanelH);
     int bx = kPanelX + kB, y = kPanelY + 58;
@@ -1892,7 +1893,7 @@ void FarmWindow::DrawMerchant(HDC hdc) {
 }
 
 void FarmWindow::DrawDailyTasks(HDC hdc) {
-    auto& dts = DailyTaskSystem::Instance();
+    auto& dts = game_.DailyTasks();
     const auto& tasks = dts.TodayTasks();
     DrawPanelFrame(hdc, L"每日任务", kPanelX, kPanelY, kPanelW, kPanelH);
     int y = kPanelY + 58, bx = kPanelX + kB;

@@ -23,6 +23,10 @@ PlayerState::PlayerState() {
     unlocked_content_.insert(UnlockId::Chicken);
 }
 
+void PlayerState::Setup(AchievementSystem* ach) {
+    ach_ = ach;
+}
+
 int PlayerState::WarehouseUsed() const {
     int used = 0;
     for (const auto& [item, quantity] : items_) {
@@ -153,12 +157,11 @@ Result<void> PlayerState::TrySellItem(ItemId item, int quantity) {
 int PlayerState::BatchSellAll() {
     int total_gold = 0;
     int count = 0;
-    // Collect items to sell (non-locked, sellable, not seeds/fertilizer)
     std::vector<InventoryItemView> items = InventoryView();
     for (const InventoryItemView& iv : items) {
         if (iv.locked) continue;
         const ItemInfo& info = GetItemInfo(iv.item);
-        if (info.sell_price <= 0) continue;  // seeds, fertilizer can't sell
+        if (info.sell_price <= 0) continue;
         total_gold += info.sell_price * iv.quantity;
         count += iv.quantity;
         items_.erase(iv.item);
@@ -169,9 +172,9 @@ int PlayerState::BatchSellAll() {
 
 Result<void> PlayerState::UpgradeWarehouse() {
     if (warehouse_level_ >= kWarehouseMaxLevel) {
-        return Result<void>::failure(ErrorCode::InvalidQuantity);  // max level
+        return Result<void>::failure(ErrorCode::InvalidQuantity);
     }
-    int cost = kWarehouseUpgradeCosts[warehouse_level_];  // cost to NEXT level
+    int cost = kWarehouseUpgradeCosts[warehouse_level_];
     auto spent = TrySpendGold(cost);
     if (!spent.ok()) {
         return spent;
@@ -199,30 +202,24 @@ Result<void> PlayerState::UnlockContent(UnlockId id) {
     unlocked_content_.insert(id);
     if (node->category == UnlockCategory::Seed) {
         switch (id) {
-            case UnlockId::WheatSeed:
-                unlocked_seeds_.insert(ItemId::WheatSeed);
-                break;
-            case UnlockId::CornSeed:
-                unlocked_seeds_.insert(ItemId::CornSeed);
-                break;
-            case UnlockId::CarrotSeed:
-                unlocked_seeds_.insert(ItemId::CarrotSeed);
-                break;
-            case UnlockId::TomatoSeed:
-                unlocked_seeds_.insert(ItemId::TomatoSeed);
-                break;
-            default:
-                break;
+            case UnlockId::WheatSeed:      unlocked_seeds_.insert(ItemId::WheatSeed);      break;
+            case UnlockId::CornSeed:       unlocked_seeds_.insert(ItemId::CornSeed);       break;
+            case UnlockId::CarrotSeed:     unlocked_seeds_.insert(ItemId::CarrotSeed);     break;
+            case UnlockId::TomatoSeed:     unlocked_seeds_.insert(ItemId::TomatoSeed);     break;
+            case UnlockId::StrawberrySeed: unlocked_seeds_.insert(ItemId::StrawberrySeed); break;
+            case UnlockId::PumpkinSeed:    unlocked_seeds_.insert(ItemId::PumpkinSeed);    break;
+            case UnlockId::MushroomSeed:   unlocked_seeds_.insert(ItemId::MushroomSeed);   break;
+            default: break;
         }
     }
-    AchievementSystem::Instance().OnUnlockContent();
+    if (ach_) ach_->OnUnlockContent();
     return Result<void>::success();
 }
 
 void PlayerState::AddGold(int amount) {
     if (amount > 0) {
         gold_ += amount;
-        AchievementSystem::Instance().OnAddGold(amount);
+        if (ach_) ach_->OnAddGold(amount);
     }
 }
 
@@ -234,7 +231,7 @@ void PlayerState::AddExperience(int amount) {
     while (experience_ >= kExpPerLevel) {
         experience_ -= kExpPerLevel;
         ++level_;
-        AchievementSystem::Instance().OnPlayerLevelUp(level_);
+        if (ach_) ach_->OnPlayerLevelUp(level_);
     }
 }
 
@@ -280,29 +277,14 @@ void PlayerState::SetUnlockedForLoad(UnlockId id, bool unlocked) {
         const UnlockNode* node = UnlockGraph::Find(id);
         if (node != nullptr && node->category == UnlockCategory::Seed) {
             switch (id) {
-                case UnlockId::WheatSeed:
-                    unlocked_seeds_.insert(ItemId::WheatSeed);
-                    break;
-                case UnlockId::CornSeed:
-                    unlocked_seeds_.insert(ItemId::CornSeed);
-                    break;
-                case UnlockId::CarrotSeed:
-                    unlocked_seeds_.insert(ItemId::CarrotSeed);
-                    break;
-                case UnlockId::TomatoSeed:
-                    unlocked_seeds_.insert(ItemId::TomatoSeed);
-                    break;
-                case UnlockId::StrawberrySeed:
-                    unlocked_seeds_.insert(ItemId::StrawberrySeed);
-                    break;
-                case UnlockId::PumpkinSeed:
-                    unlocked_seeds_.insert(ItemId::PumpkinSeed);
-                    break;
-                case UnlockId::MushroomSeed:
-                    unlocked_seeds_.insert(ItemId::MushroomSeed);
-                    break;
-                default:
-                    break;
+                case UnlockId::WheatSeed:      unlocked_seeds_.insert(ItemId::WheatSeed);      break;
+                case UnlockId::CornSeed:       unlocked_seeds_.insert(ItemId::CornSeed);       break;
+                case UnlockId::CarrotSeed:     unlocked_seeds_.insert(ItemId::CarrotSeed);     break;
+                case UnlockId::TomatoSeed:     unlocked_seeds_.insert(ItemId::TomatoSeed);     break;
+                case UnlockId::StrawberrySeed: unlocked_seeds_.insert(ItemId::StrawberrySeed); break;
+                case UnlockId::PumpkinSeed:    unlocked_seeds_.insert(ItemId::PumpkinSeed);    break;
+                case UnlockId::MushroomSeed:   unlocked_seeds_.insert(ItemId::MushroomSeed);   break;
+                default: break;
             }
         }
     } else {

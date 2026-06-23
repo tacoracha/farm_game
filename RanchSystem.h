@@ -7,6 +7,8 @@
 namespace farm {
 
 class PlayerState;
+class AchievementSystem;
+class DailyTaskSystem;
 
 struct AnimalData {
     int id = 0;
@@ -67,6 +69,10 @@ public:
     int ReadyProductCount() const;
     void Tick(int current_tick, float weather_multiplier);
 
+    // Called by Game after construction to wire up event systems
+    void Setup(AchievementSystem* ach, DailyTaskSystem* dts);
+
+    // Save/Load — called by SaveManager via Game
     void ClearForLoad();
     void SetFacilitiesForLoad(const std::vector<RanchFacilityData>& facilities, int next_animal_id);
     int NextAnimalIdForSave() const { return next_animal_id_; }
@@ -81,6 +87,10 @@ private:
     std::vector<RanchFacilityData> facilities_;
     int next_animal_id_ = 1;
     int next_facility_id_ = 2;
+
+    // Event system pointers (non-owning)
+    AchievementSystem* ach_ = nullptr;
+    DailyTaskSystem* dts_ = nullptr;
 };
 
 }  // namespace farm

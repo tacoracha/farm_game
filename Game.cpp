@@ -73,22 +73,10 @@ WeatherSnapshot WeatherSystem::Snapshot() const {
     float crop = 1.0f;
     float ranch = 1.0f;
     switch (weather_) {
-        case WeatherType::Sunny:
-            crop = 1.0f;
-            ranch = 1.0f;
-            break;
-        case WeatherType::Rainy:
-            crop = 1.35f;
-            ranch = 1.0f;
-            break;
-        case WeatherType::Cloudy:
-            crop = 1.1f;
-            ranch = 1.0f;
-            break;
-        case WeatherType::Drought:
-            crop = 0.65f;
-            ranch = 0.9f;
-            break;
+        case WeatherType::Sunny:   crop = 1.0f;  ranch = 1.0f;  break;
+        case WeatherType::Rainy:   crop = 1.35f; ranch = 1.0f;  break;
+        case WeatherType::Cloudy:  crop = 1.1f;  ranch = 1.0f;  break;
+        case WeatherType::Drought: crop = 0.65f; ranch = 0.9f;  break;
     }
     return WeatherSnapshot{weather_, remaining_ticks_, crop, ranch};
 }
@@ -106,7 +94,6 @@ void WeatherSystem::SetForLoad(WeatherType weather, int remaining_ticks) {
 }
 
 void WeatherSystem::ChooseNext(int current_tick, Season season) {
-    // Season-based weather distribution
     const int r = std::abs(current_tick * 37 + 13) % 100;
     switch (season) {
         case Season::Spring:
@@ -141,17 +128,26 @@ Game::Game() = default;
 
 Game Game::NewGame() {
     Game g;
-    AchievementSystem::Instance().Init();
-    DailyTaskSystem::Instance().Init();
-    TravelingMerchantSystem::Instance().Init();
-    FishingSystem::Instance().Init();
+
+    // Initialize singleton-style systems (now owned by Game)
+    g.achievements_.Init();
+    g.daily_tasks_.Init();
+    g.merchant_.Init();
+    g.fishing_.Init();
+
+    // Wire up event system pointers
+    g.player_.Setup(&g.achievements_);
+    g.planting_.Setup(&g.achievements_, &g.daily_tasks_);
+    g.ranch_.Setup(&g.achievements_, &g.daily_tasks_);
+    g.workshop_.Setup(&g.achievements_, &g.daily_tasks_);
+    g.orders_.Setup(&g.achievements_, &g.daily_tasks_);
+
     return g;
 }
 
 void Game::AdvanceTicks(int count) {
     const int mature_before = planting_.MatureCount();
     const int ready_before = ranch_.ReadyProductCount();
-    // Track visible order IDs to detect refreshes
     std::vector<int> order_ids_before;
     for (const OrderData& o : orders_.Orders()) {
         if (o.id != 0) order_ids_before.push_back(o.id);
@@ -163,34 +159,29 @@ void Game::AdvanceTicks(int count) {
         weather_.Tick(time_.CurrentTick(), season_.Current());
         const WeatherSnapshot weather = weather_.Snapshot();
         const SeasonSnapshot ssnap = season_.Snapshot();
-        // Combine weather + season modifiers + event effects
         float crop_mod = weather.crop_multiplier * ssnap.crop_speed;
         float ranch_mod = weather.ranch_multiplier * ssnap.ranch_speed;
         if (time_.CurrentTick() < event_until_tick_) {
             if (event_ranch_penalty_ > 0) ranch_mod *= (1.0f - event_ranch_penalty_ / 100.0f);
         }
-        // Summer drought: double watering effect
         planting_.SetSummerDrought(weather.weather == WeatherType::Drought &&
                                    season_.Current() == Season::Summer);
-        // Autumn: 10% double harvest
         planting_.SetAutumnDouble(season_.Current() == Season::Autumn);
         planting_.Tick(time_.CurrentTick(), crop_mod);
         ranch_.Tick(time_.CurrentTick(), ranch_mod);
-        // Auto-water during spring rain event
         if (event_auto_water_ && time_.CurrentTick() < event_until_tick_) {
             planting_.BatchWater(time_.CurrentTick());
         }
         workshop_.Tick(player_);
         orders_.Tick(time_.CurrentTick(), player_, season_.Current());
-        DailyTaskSystem::Instance().Tick(time_.CurrentTick(), player_);
-        TravelingMerchantSystem::Instance().Tick(time_.CurrentTick());
-        FishingSystem::Instance().Tick(time_.CurrentTick());
+        daily_tasks_.Tick(time_.CurrentTick(), player_);
+        merchant_.Tick(time_.CurrentTick());
+        fishing_.Tick(time_.CurrentTick());
         MaybeTriggerRandomEvent();
     }
 
-    // Season change toast + withering + achievement hook
     if (season_.JustChanged()) {
-        AchievementSystem::Instance().OnSeasonChange(season_.Current());
+        achievements_.OnSeasonChange(season_.Current());
         std::string msg = std::string("季节更替：进入") + SeasonName(season_.Current()) + "！";
         int withered = planting_.WitherNonSeasonal(season_.Current());
         if (withered > 0) {
@@ -200,7 +191,6 @@ void Game::AdvanceTicks(int count) {
         season_.ClearJustChanged();
     }
 
-    // Achievement periodic checks
     int total_animals = 0, chicken_count = 0;
     for (const auto& f : ranch_.Facilities()) {
         for (const auto& a : f.animals) {
@@ -208,11 +198,10 @@ void Game::AdvanceTicks(int count) {
             if (a.kind == AnimalKind::Chicken) ++chicken_count;
         }
     }
-    AchievementSystem::Instance().CheckPeriodic(time_.CurrentTick(), total_animals,
-                                                  chicken_count, player_.WarehouseCapacity(),
-                                                  player_.WarehouseUsed());
+    achievements_.CheckPeriodic(time_.CurrentTick(), total_animals,
+                                chicken_count, player_.WarehouseCapacity(),
+                                player_.WarehouseUsed());
 
-    // Pre-winter warning: 12 ticks before season change
     const SeasonSnapshot ssnap = season_.Snapshot();
     if (ssnap.ticks_remaining == 12) {
         farm::Season next = static_cast<farm::Season>((static_cast<int>(season_.Current()) + 1) % 4);
@@ -221,19 +210,16 @@ void Game::AdvanceTicks(int count) {
 
     const int current = time_.CurrentTick();
 
-    // Crop mature detection
     const int mature_after = planting_.MatureCount();
     if (mature_after > mature_before) {
         EnqueueToast("有 " + std::to_string(mature_after) + " 块地作物成熟了！", 0, current + 25);
     }
 
-    // Animal product ready detection
     const int ready_after = ranch_.ReadyProductCount();
     if (ready_after > ready_before) {
         EnqueueToast("有 " + std::to_string(ready_after) + " 个动物产品可以收获了！", 0, current + 25);
     }
 
-    // Order refresh detection — new order IDs appeared that weren't there before
     int new_order_count = 0;
     for (const OrderData& o : orders_.Orders()) {
         if (o.id == 0) continue;
@@ -298,7 +284,6 @@ void Game::MaybeTriggerRandomEvent() {
     if (time_.CurrentTick() - last_random_event_tick_ < kRandomEventIntervalTicks) {
         return;
     }
-    // Clear expired effects
     if (time_.CurrentTick() >= event_until_tick_) {
         event_crop_yield_bonus_ = 0;
         event_ranch_penalty_ = 0;
@@ -357,7 +342,6 @@ void Game::MaybeTriggerRandomEvent() {
 
 void Game::EnqueueToast(const std::string& text, int color, int until_tick) {
     toast_queue_.push_back({text, color, until_tick});
-    // Cap toast queue to prevent unbounded growth
     if (toast_queue_.size() > 8) {
         toast_queue_.erase(toast_queue_.begin());
     }
@@ -371,4 +355,3 @@ void Game::PruneToasts(int current_tick) {
 }
 
 }  // namespace farm
-

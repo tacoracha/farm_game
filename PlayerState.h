@@ -9,6 +9,8 @@
 
 namespace farm {
 
+class AchievementSystem;
+
 struct InventoryItemView {
     ItemId item = ItemId::Wheat;
     int quantity = 0;
@@ -49,6 +51,10 @@ public:
     void AddExperience(int amount);
     void SetItemLocked(ItemId item, bool locked);
 
+    // Called by Game after construction to wire up event systems
+    void Setup(AchievementSystem* ach);
+
+    // Save/Load — called by SaveManager via Game
     void ClearForLoad();
     void SetGoldForLoad(int gold) { gold_ = gold; }
     void SetLevelForLoad(int level) { level_ = level; }
@@ -70,6 +76,9 @@ private:
     std::set<ItemId> locked_items_;
     std::set<ItemId> unlocked_seeds_;
     std::set<UnlockId> unlocked_content_;
+
+    // Event system pointer (non-owning)
+    AchievementSystem* ach_ = nullptr;
 };
 
 }  // namespace farm

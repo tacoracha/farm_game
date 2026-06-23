@@ -7,6 +7,8 @@
 namespace farm {
 
 class PlayerState;
+class AchievementSystem;
+class DailyTaskSystem;
 
 struct PlotData {
     PlotState state = PlotState::Idle;
@@ -46,7 +48,7 @@ public:
     // Greenhouse access
     const std::vector<PlotData>& GreenhousePlots() const { return greenhouse_plots_; }
     int GreenhousePlotCount() const { return static_cast<int>(greenhouse_plots_.size()); }
-    static std::vector<PlotView> GreenhouseView(const PlantingSystem& self, int current_tick);
+    std::vector<PlotView> GreenhouseView(int current_tick) const;
 
     // Batch operations — return count of affected plots
     Result<int> BatchPlant(PlayerState& player, ItemId seed, int current_tick, Season season);
@@ -55,8 +57,6 @@ public:
     Result<int> BatchHarvest(PlayerState& player);
     void Tick(int current_tick, float weather_growth_multiplier);
     int WitherNonSeasonal(Season new_season);
-    void SetSummerDrought(bool active);
-    void SetAutumnDouble(bool active);
 
     static bool CanPlantInSeason(ItemId seed, Season season);
 
@@ -69,11 +69,19 @@ public:
     Result<int> BatchWaterGreenhouse(int current_tick);
     Result<int> BatchHarvestGreenhouse(PlayerState& player);
 
+    // Called by Game after construction to wire up event systems
+    void Setup(AchievementSystem* ach, DailyTaskSystem* dts);
+
+    // Save/Load — called by SaveManager via Game
     void ClearForLoad();
     void SetPlotsForLoad(const std::vector<PlotData>& plots);
     void SetGreenhouseForLoad(const std::vector<PlotData>& plots);
 
 private:
+    friend class Game;  // for SetSummerDrought / SetAutumnDouble
+
+    void SetSummerDrought(bool active);
+    void SetAutumnDouble(bool active);
     void UpdateMaturity(int current_tick);
     void UpdateMaturity(std::vector<PlotData>& plots, int current_tick);
 
@@ -81,7 +89,10 @@ private:
     std::vector<PlotData> greenhouse_plots_;
     bool summer_drought_ = false;
     bool autumn_double_ = false;
+
+    // Event system pointers (non-owning)
+    AchievementSystem* ach_ = nullptr;
+    DailyTaskSystem* dts_ = nullptr;
 };
 
 }  // namespace farm
-

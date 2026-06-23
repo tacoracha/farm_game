@@ -7,6 +7,8 @@
 namespace farm {
 
 class PlayerState;
+class AchievementSystem;
+class DailyTaskSystem;
 
 struct AnimalData {
     int id = 0;
@@ -14,6 +16,10 @@ struct AnimalData {
     AnimalQuality quality = AnimalQuality::Common;
     AnimalState state = AnimalState::Idle;
     int finish_tick = 0;
+    int mood = 100;           // 0-100, affects production speed
+    int last_fed_tick = 0;   // when the animal was last fed
+    int age_ticks = 0;       // total ticks alive
+    bool is_baby = false;    // juvenile, not producing yet
 };
 
 struct RanchFacilityData {
@@ -29,6 +35,10 @@ struct AnimalView {
     AnimalKind kind = AnimalKind::Chicken;
     AnimalState state = AnimalState::Idle;
     int remaining_ticks = 0;
+    int mood = 100;
+    int age_ticks = 0;
+    int max_age = 0;
+    bool is_baby = false;
 };
 
 struct RanchFacilityView {
@@ -56,8 +66,13 @@ public:
     Result<void> HarvestAnimal(PlayerState& player, int facility_id, int animal_id);
     Result<int> BatchFeed(PlayerState& player, int facility_id, int current_tick);
     Result<int> BatchHarvest(PlayerState& player, int facility_id);
+    int ReadyProductCount() const;
     void Tick(int current_tick, float weather_multiplier);
 
+    // Called by Game after construction to wire up event systems
+    void Setup(AchievementSystem* ach, DailyTaskSystem* dts);
+
+    // Save/Load — called by SaveManager via Game
     void ClearForLoad();
     void SetFacilitiesForLoad(const std::vector<RanchFacilityData>& facilities, int next_animal_id);
     int NextAnimalIdForSave() const { return next_animal_id_; }
@@ -72,6 +87,10 @@ private:
     std::vector<RanchFacilityData> facilities_;
     int next_animal_id_ = 1;
     int next_facility_id_ = 2;
+
+    // Event system pointers (non-owning)
+    AchievementSystem* ach_ = nullptr;
+    DailyTaskSystem* dts_ = nullptr;
 };
 
 }  // namespace farm

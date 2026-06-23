@@ -7,6 +7,8 @@
 namespace farm {
 
 class PlayerState;
+class AchievementSystem;
+class DailyTaskSystem;
 
 struct ProductionJob {
     RecipeId recipe = RecipeId::ChickenFeed;
@@ -30,6 +32,11 @@ class WorkshopSystem {
 public:
     WorkshopView View() const;
     const std::vector<ProductionJob>& Queue() const { return queue_; }
+
+    // Generic shelf query by product ItemId
+    int ShelfCount(ItemId product) const;
+
+    // Convenience shelf getters (kept for backward compatibility)
     int ShelfChickenFeed() const { return shelf_chicken_feed_; }
     int ShelfCowFeed() const { return shelf_cow_feed_; }
     int ShelfBread() const { return shelf_bread_; }
@@ -41,6 +48,10 @@ public:
     Result<int> ClaimAllProducts(PlayerState& player);
     void Tick(PlayerState& player);
 
+    // Called by Game after construction to wire up event systems
+    void Setup(AchievementSystem* ach, DailyTaskSystem* dts);
+
+    // Save/Load — called by SaveManager via Game
     void ClearForLoad();
     void SetForLoad(const std::vector<ProductionJob>& queue, int shelf_chicken_feed,
                     int shelf_cow_feed, int shelf_bread = 0, int shelf_cheese = 0,
@@ -58,6 +69,10 @@ private:
     int shelf_bread_ = 0;
     int shelf_cheese_ = 0;
     int shelf_jam_ = 0;
+
+    // Event system pointers (non-owning)
+    AchievementSystem* ach_ = nullptr;
+    DailyTaskSystem* dts_ = nullptr;
 };
 
 }  // namespace farm

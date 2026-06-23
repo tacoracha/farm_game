@@ -7,7 +7,11 @@ const std::vector<UnlockNode>& UnlockGraph::Nodes() {
         {UnlockId::WheatSeed, UnlockCategory::Seed, "小麦种子", 1, 0, {}},
         {UnlockId::CornSeed, UnlockCategory::Seed, "玉米种子", 2, 35, {UnlockId::WheatSeed}},
         {UnlockId::CarrotSeed, UnlockCategory::Seed, "胡萝卜种子", 3, 45, {UnlockId::CornSeed}},
-        {UnlockId::TomatoSeed, UnlockCategory::Seed, "番茄种子", 4, 65, {UnlockId::CarrotSeed}},
+        {UnlockId::TomatoSeed, UnlockCategory::Seed, "番茄种子", 3, 50, {UnlockId::CarrotSeed}},
+        {UnlockId::StrawberrySeed, UnlockCategory::Seed, "草莓种子", 4, 70, {UnlockId::TomatoSeed}},
+        {UnlockId::PumpkinSeed, UnlockCategory::Seed, "南瓜种子", 5, 90, {UnlockId::StrawberrySeed}},
+        {UnlockId::MushroomSeed, UnlockCategory::Seed, "蘑菇孢子", 6, 110, {UnlockId::PumpkinSeed}},
+        {UnlockId::GreenhouseTech, UnlockCategory::Land, "温室技术", 5, 150, {UnlockId::TomatoSeed}},
         {UnlockId::ExtraLand, UnlockCategory::Land, "扩建土地", 2, 0, {UnlockId::CornSeed}},
         {UnlockId::ChickenCoop, UnlockCategory::Ranch, "鸡圈", 1, 0, {}},
         {UnlockId::CowBarn, UnlockCategory::Ranch, "牛棚", 3, 90, {UnlockId::CarrotSeed, UnlockId::ChickenCoop}},
@@ -38,6 +42,12 @@ UnlockId UnlockGraph::SeedUnlock(ItemId seed) {
             return UnlockId::CarrotSeed;
         case ItemId::TomatoSeed:
             return UnlockId::TomatoSeed;
+        case ItemId::StrawberrySeed:
+            return UnlockId::StrawberrySeed;
+        case ItemId::PumpkinSeed:
+            return UnlockId::PumpkinSeed;
+        case ItemId::MushroomSeed:
+            return UnlockId::MushroomSeed;
         default:
             return UnlockId::WheatSeed;
     }
@@ -73,7 +83,9 @@ UnlockId UnlockGraph::AnimalUnlock(AnimalKind kind) {
 
 bool UnlockGraph::IsSeed(ItemId item) {
     return item == ItemId::WheatSeed || item == ItemId::CornSeed ||
-           item == ItemId::CarrotSeed || item == ItemId::TomatoSeed;
+           item == ItemId::CarrotSeed || item == ItemId::TomatoSeed ||
+           item == ItemId::StrawberrySeed || item == ItemId::PumpkinSeed ||
+           item == ItemId::MushroomSeed;
 }
 
 }  // namespace farm

@@ -1,11 +1,7 @@
 #include "farm/persistence/SaveManager.h"
 
-#include "farm/achievement/AchievementSystem.h"
 #include "farm/common/Constants.h"
 #include "farm/core/Game.h"
-#include "farm/dailytask/DailyTaskSystem.h"
-#include "farm/fishing/FishingSystem.h"
-#include "farm/merchant/TravelingMerchantSystem.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -118,7 +114,7 @@ Result<void> SaveManager::Save(const Game& game, const std::string& path) {
     out << "REALTIME " << CurrentUnixSeconds() << "\n";
     out << "END\n";
     // Achievement data after END (optional, won't break old loaders)
-    auto& ach = AchievementSystem::Instance();
+    const auto& ach = game.Achievements();
     out << "ACHIEVE " << ach.TotalHarvests() << " " << ach.WheatHarvests() << " "
         << ach.TotalProcessed() << " " << ach.TotalOrders() << " "
         << ach.TotalGoldEarned() << " " << ach.UnlockCount() << " "
@@ -137,14 +133,14 @@ Result<void> SaveManager::Save(const Game& game, const std::string& path) {
     for (const Achievement& a : ach.All()) out << " " << a.current;
     out << "\n";
     // Daily task save
-    auto& dts = DailyTaskSystem::Instance();
+    const auto& dts = game.DailyTasks();
     out << "DAILYTASK " << dts.LastRefreshDay() << " " << dts.TodayTasks().size() << "\n";
     for (const DailyTask& t : dts.TodayTasks()) {
         out << "DTASK " << static_cast<int>(t.id) << " " << t.current << " "
             << (t.completed ? 1 : 0) << "\n";
     }
     // Merchant save
-    auto& mer = TravelingMerchantSystem::Instance();
+    const auto& mer = game.Merchant();
     out << "MERCHANT " << (mer.PresentForSave() ? 1 : 0) << " " << mer.AppearTickForSave()
         << " " << mer.ItemsForSave().size() << " " << mer.OffersForSave().size() << "\n";
     for (const MerchantItem& mi : mer.ItemsForSave())
@@ -152,7 +148,7 @@ Result<void> SaveManager::Save(const Game& game, const std::string& path) {
     for (const MerchantOffer& mo : mer.OffersForSave())
         out << "MOFFER " << static_cast<int>(mo.item) << " " << mo.price << " " << mo.max_buy << " " << mo.bought << "\n";
     // Fishing save
-    auto& fish = FishingSystem::Instance();
+    const auto& fish = game.Fishing();
     out << "FISHING " << fish.BaitForSave() << " " << fish.RodForSave() << " "
         << fish.CatchesForSave() << " " << fish.CollectionForSave().size() << "\n";
     for (const FishRecord& fr : fish.CollectionForSave())
@@ -437,7 +433,7 @@ Result<void> SaveManager::Load(const std::string& path, Game& game) {
     if (in >> ach_tag && ach_tag == "ACHIEVE") {
         int th = 0, wh = 0, tp = 0, to = 0, tg = 0, uc = 0, sh = 0, su = 0, bu = 0, rk = 0;
         if (in >> th >> wh >> tp >> to >> tg >> uc >> sh >> su >> bu >> rk) {
-            auto& ach = AchievementSystem::Instance();
+            auto& ach = loaded.Achievements();
             ach.ClearForLoad();
             ach.SetTotalHarvests(th); ach.SetWheatHarvests(wh);
             ach.SetTotalProcessed(tp); ach.SetTotalOrders(to);
@@ -461,7 +457,7 @@ Result<void> SaveManager::Load(const std::string& path, Game& game) {
     if (in >> dt_tag && dt_tag == "DAILYTASK") {
         int day = 0; std::size_t dt_count = 0;
         if (in >> day >> dt_count) {
-            DailyTaskSystem::Instance().Init();
+            loaded.DailyTasks().Init();
             std::vector<DailyTask> dts;
             for (std::size_t i = 0; i < dt_count; ++i) {
                 int tid = 0, cur = 0, comp = 0;
@@ -472,14 +468,14 @@ Result<void> SaveManager::Load(const std::string& path, Game& game) {
                 t.completed = comp != 0;
                 dts.push_back(t);
             }
-            DailyTaskSystem::Instance().SetForLoad(day, dts);
+            loaded.DailyTasks().SetForLoad(day, dts);
         }
     }
     // Optional merchant data
     if (in >> dt_tag && dt_tag == "MERCHANT") {
         int mp = 0, mat = 0; std::size_t mic = 0, moc = 0;
         if (in >> mp >> mat >> mic >> moc) {
-            TravelingMerchantSystem::Instance().ClearForLoad();
+            loaded.Merchant().ClearForLoad();
             std::vector<MerchantItem> items;
             for (std::size_t i = 0; i < mic; ++i) {
                 int it = 0, pr = 0, st = 0, so = 0;
@@ -492,21 +488,21 @@ Result<void> SaveManager::Load(const std::string& path, Game& game) {
                 in >> dt_tag >> it >> pr >> mb >> bo;
                 offers.push_back({static_cast<ItemId>(it), pr, mb, bo});
             }
-            TravelingMerchantSystem::Instance().SetForLoad(mp != 0, mat, items, offers);
+            loaded.Merchant().SetForLoad(mp != 0, mat, items, offers);
         }
     }
     // Optional fishing data
     if (in >> dt_tag && dt_tag == "FISHING") {
         int bait = 0, rod = 1, catches = 0; std::size_t fc = 0;
         if (in >> bait >> rod >> catches >> fc) {
-            FishingSystem::Instance().ClearForLoad();
+            loaded.Fishing().ClearForLoad();
             std::vector<FishRecord> col;
             for (std::size_t i = 0; i < fc; ++i) {
                 int fid = 0, cnt = 0, mx = 0;
                 in >> dt_tag >> fid >> cnt >> mx;
                 col.push_back({fid, cnt, mx});
             }
-            FishingSystem::Instance().SetForLoad(bait, rod, catches, col);
+            loaded.Fishing().SetForLoad(bait, rod, catches, col);
         }
     }
     game = loaded;

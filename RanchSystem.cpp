@@ -20,6 +20,11 @@ RanchSystem::RanchSystem() {
     facilities_.push_back(coop);
 }
 
+void RanchSystem::Setup(AchievementSystem* ach, DailyTaskSystem* dts) {
+    ach_ = ach;
+    dts_ = dts;
+}
+
 namespace {
 
 bool FacilityMatches(RanchFacilityKind facility, AnimalKind animal) {
@@ -34,28 +39,20 @@ int FacilityCapacity(RanchFacilityKind kind) {
 
 int FacilityBuildCost(RanchFacilityKind kind) {
     switch (kind) {
-        case RanchFacilityKind::ChickenCoop:
-            return 0;
-        case RanchFacilityKind::CowBarn:
-            return 120;
-        case RanchFacilityKind::SheepPen:
-            return 160;
-        case RanchFacilityKind::PigPen:
-            return 160;
+        case RanchFacilityKind::ChickenCoop: return 0;
+        case RanchFacilityKind::CowBarn:     return 120;
+        case RanchFacilityKind::SheepPen:    return 160;
+        case RanchFacilityKind::PigPen:      return 160;
     }
     return 0;
 }
 
 int AnimalCost(AnimalKind kind) {
     switch (kind) {
-        case AnimalKind::Chicken:
-            return kChickenCost;
-        case AnimalKind::Cow:
-            return kCowCost;
-        case AnimalKind::Sheep:
-            return kSheepCost;
-        case AnimalKind::Pig:
-            return kSheepCost;
+        case AnimalKind::Chicken: return kChickenCost;
+        case AnimalKind::Cow:     return kCowCost;
+        case AnimalKind::Sheep:   return kSheepCost;
+        case AnimalKind::Pig:     return kSheepCost;
     }
     return kChickenCost;
 }
@@ -171,12 +168,12 @@ Result<int> RanchSystem::BuyAnimal(PlayerState& player, int facility_id, AnimalK
     animal.id = next_animal_id_++;
     animal.kind = kind;
     animal.mood = kMoodFedValue;
-    animal.last_fed_tick = 0;  // Will be set on first feed or tick
+    animal.last_fed_tick = 0;
     animal.age_ticks = 0;
     animal.is_baby = false;
     facility->animals.push_back(animal);
-    AchievementSystem::Instance().OnBuyAnimal(kind);
-    DailyTaskSystem::Instance().OnBuyAnimal(1);
+    if (ach_) ach_->OnBuyAnimal(kind);
+    if (dts_) dts_->OnBuyAnimal(1);
     return Result<int>::success(animal.id);
 }
 
@@ -200,15 +197,13 @@ Result<void> RanchSystem::FeedAnimal(PlayerState& player, int facility_id, int a
     if (!removed.ok()) {
         return removed;
     }
-    // Mood: feeding resets to max
     animal->mood = kMoodFedValue;
     animal->last_fed_tick = current_tick;
 
-    // Production speed modified by mood
     int base_ticks = ProductionTicksFor(animal->kind);
     animal->state = AnimalState::Producing;
     animal->finish_tick = current_tick + base_ticks;
-    DailyTaskSystem::Instance().OnFeedAnimal(1);
+    if (dts_) dts_->OnFeedAnimal(1);
     return Result<void>::success();
 }
 
@@ -230,8 +225,8 @@ Result<void> RanchSystem::HarvestAnimal(PlayerState& player, int facility_id, in
     }
     animal->state = AnimalState::Idle;
     animal->finish_tick = 0;
-    AchievementSystem::Instance().OnHarvestProduct(ProductFor(animal->kind));
-    DailyTaskSystem::Instance().OnHarvestProduct(1);
+    if (ach_) ach_->OnHarvestProduct(ProductFor(animal->kind));
+    if (dts_) dts_->OnHarvestProduct(1);
     return Result<void>::success();
 }
 
@@ -285,33 +280,27 @@ void RanchSystem::Tick(int current_tick, float weather_multiplier) {
         for (AnimalData& animal : facility.animals) {
             ++animal.age_ticks;
 
-            // --- Lifespan: remove dead animals ---
             if (animal.age_ticks >= LifespanFor(animal.kind)) {
                 dead_ids.push_back(animal.id);
                 continue;
             }
 
-            // --- Baby grows up ---
             if (animal.is_baby && animal.age_ticks >= kBabyGrowTicks) {
                 animal.is_baby = false;
                 animal.mood = kMoodFedValue;
                 animal.last_fed_tick = current_tick;
             }
-            if (animal.is_baby) continue;  // babies don't produce or breed
+            if (animal.is_baby) continue;
 
-            // --- Mood decay ---
             if (current_tick - animal.last_fed_tick > kMoodDropAfterTicks) {
                 animal.mood = std::max(0, animal.mood - kMoodDropPerTick);
             }
 
-            // --- Production: apply mood modifier ---
             if (animal.state == AnimalState::Producing) {
                 int effective_tick = animal.finish_tick;
                 if (animal.mood >= kMoodHighThreshold) {
-                    // +20% speed: reduce finish_tick by 1 every ~5 ticks
                     if (current_tick % 5 == 0) --effective_tick;
                 } else if (animal.mood < kMoodLowThreshold) {
-                    // -30% speed: increase finish_tick by 1 every ~3 ticks
                     if (current_tick % 3 == 0) ++effective_tick;
                 }
                 if (current_tick >= effective_tick) {
@@ -325,7 +314,6 @@ void RanchSystem::Tick(int current_tick, float weather_multiplier) {
             }
         }
 
-        // Remove dead animals
         for (int dead_id : dead_ids) {
             facility.animals.erase(
                 std::remove_if(facility.animals.begin(), facility.animals.end(),
@@ -333,7 +321,6 @@ void RanchSystem::Tick(int current_tick, float weather_multiplier) {
                 facility.animals.end());
         }
 
-        // --- Breeding ---
         if (current_tick % kBreedingIntervalTicks == 0) {
             for (std::size_t i = 0; i < facility.animals.size(); ++i) {
                 for (std::size_t j = i + 1; j < facility.animals.size(); ++j) {
@@ -343,7 +330,6 @@ void RanchSystem::Tick(int current_tick, float weather_multiplier) {
                         facility.animals[j].mood >= kMoodHighThreshold &&
                         static_cast<int>(facility.animals.size() + new_babies.size()) <
                             facility.capacity) {
-                        // 30% chance
                         if ((current_tick + static_cast<int>(i)) % 100 < kBreedingChancePercent) {
                             AnimalData baby;
                             baby.id = next_animal_id_++;
@@ -353,7 +339,7 @@ void RanchSystem::Tick(int current_tick, float weather_multiplier) {
                             baby.mood = kMoodFedValue;
                             baby.last_fed_tick = current_tick;
                             new_babies.push_back(baby);
-                            break;  // One baby per facility per breeding check
+                            break;
                         }
                     }
                 }
@@ -361,7 +347,6 @@ void RanchSystem::Tick(int current_tick, float weather_multiplier) {
             }
         }
 
-        // Add new babies
         for (AnimalData& baby : new_babies) {
             facility.animals.push_back(baby);
         }
