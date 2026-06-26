@@ -54,7 +54,7 @@ constexpr int kAchievementCount = static_cast<int>(AchievementID::COUNT);
 
 }  // namespace
 
-const char* farm::CategoryName(AchievementCategory cat) {
+const char* CategoryName(AchievementCategory cat) {
     switch (cat) {
         case AchievementCategory::Plant:    return "种植";
         case AchievementCategory::Ranch:    return "牧场";

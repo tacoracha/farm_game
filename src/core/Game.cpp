@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <utility>
 
 namespace farm {
 
@@ -124,25 +125,96 @@ void WeatherSystem::ChooseNext(int current_tick, Season season) {
     remaining_ticks_ = 120 + (current_tick % 120);
 }
 
-Game::Game() = default;
+Game::Game() {
+    achievements_.Init();
+    daily_tasks_.Init();
+    merchant_.Init();
+    fishing_.Init();
+    BindOwnedSystems();
+}
+
+Game::Game(const Game& other) : Game() {
+    CopyStateFrom(other);
+}
+
+Game& Game::operator=(const Game& other) {
+    if (this != &other) {
+        CopyStateFrom(other);
+    }
+    return *this;
+}
+
+Game::Game(Game&& other) noexcept : Game() {
+    MoveStateFrom(std::move(other));
+}
+
+Game& Game::operator=(Game&& other) noexcept {
+    if (this != &other) {
+        MoveStateFrom(std::move(other));
+    }
+    return *this;
+}
+
+void Game::BindOwnedSystems() {
+    player_.Setup(&achievements_);
+    planting_.Setup(&achievements_, &daily_tasks_);
+    ranch_.Setup(&achievements_, &daily_tasks_);
+    workshop_.Setup(&achievements_, &daily_tasks_);
+    orders_.Setup(&achievements_, &daily_tasks_);
+}
+
+void Game::CopyStateFrom(const Game& other) {
+    time_ = other.time_;
+    season_ = other.season_;
+    weather_ = other.weather_;
+    player_ = other.player_;
+    planting_ = other.planting_;
+    ranch_ = other.ranch_;
+    workshop_ = other.workshop_;
+    orders_ = other.orders_;
+    shop_ = other.shop_;
+    fishing_ = other.fishing_;
+    achievements_ = other.achievements_;
+    daily_tasks_ = other.daily_tasks_;
+    merchant_ = other.merchant_;
+    last_auto_save_tick_ = other.last_auto_save_tick_;
+    last_random_event_tick_ = other.last_random_event_tick_;
+    last_event_message_ = other.last_event_message_;
+    event_crop_yield_bonus_ = other.event_crop_yield_bonus_;
+    event_ranch_penalty_ = other.event_ranch_penalty_;
+    event_until_tick_ = other.event_until_tick_;
+    event_auto_water_ = other.event_auto_water_;
+    toast_queue_ = other.toast_queue_;
+    BindOwnedSystems();
+}
+
+void Game::MoveStateFrom(Game&& other) noexcept {
+    time_ = std::move(other.time_);
+    season_ = std::move(other.season_);
+    weather_ = std::move(other.weather_);
+    player_ = std::move(other.player_);
+    planting_ = std::move(other.planting_);
+    ranch_ = std::move(other.ranch_);
+    workshop_ = std::move(other.workshop_);
+    orders_ = std::move(other.orders_);
+    shop_ = std::move(other.shop_);
+    fishing_ = std::move(other.fishing_);
+    achievements_ = std::move(other.achievements_);
+    daily_tasks_ = std::move(other.daily_tasks_);
+    merchant_ = std::move(other.merchant_);
+    last_auto_save_tick_ = other.last_auto_save_tick_;
+    last_random_event_tick_ = other.last_random_event_tick_;
+    last_event_message_ = std::move(other.last_event_message_);
+    event_crop_yield_bonus_ = other.event_crop_yield_bonus_;
+    event_ranch_penalty_ = other.event_ranch_penalty_;
+    event_until_tick_ = other.event_until_tick_;
+    event_auto_water_ = other.event_auto_water_;
+    toast_queue_ = std::move(other.toast_queue_);
+    BindOwnedSystems();
+}
 
 Game Game::NewGame() {
-    Game g;
-
-    // Initialize singleton-style systems (now owned by Game)
-    g.achievements_.Init();
-    g.daily_tasks_.Init();
-    g.merchant_.Init();
-    g.fishing_.Init();
-
-    // Wire up event system pointers
-    g.player_.Setup(&g.achievements_);
-    g.planting_.Setup(&g.achievements_, &g.daily_tasks_);
-    g.ranch_.Setup(&g.achievements_, &g.daily_tasks_);
-    g.workshop_.Setup(&g.achievements_, &g.daily_tasks_);
-    g.orders_.Setup(&g.achievements_, &g.daily_tasks_);
-
-    return g;
+    return Game{};
 }
 
 void Game::AdvanceTicks(int count) {

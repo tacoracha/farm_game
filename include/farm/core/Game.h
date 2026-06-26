@@ -101,6 +101,10 @@ private:
 class Game {
 public:
     Game();
+    Game(const Game& other);
+    Game& operator=(const Game& other);
+    Game(Game&& other) noexcept;
+    Game& operator=(Game&& other) noexcept;
 
     static Game NewGame();
 
@@ -152,6 +156,9 @@ public:
 private:
     friend class SaveManager;
 
+    void BindOwnedSystems();
+    void CopyStateFrom(const Game& other);
+    void MoveStateFrom(Game&& other) noexcept;
     void MaybeTriggerRandomEvent();
 
     TimeSystem time_;

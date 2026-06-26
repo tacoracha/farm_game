@@ -280,6 +280,58 @@ void TestFullLoop() {
     EXPECT(game.Player().ItemCount(farm::ItemId::Egg) > 0);
 }
 
+void TestGameAssignmentKeepsEventBindings() {
+    farm::Game game;
+    game = farm::Game::NewGame();
+    EXPECT(game.Planting().TryPlantAt(game.Player(), 0, farm::ItemId::WheatSeed,
+                                      game.Time().CurrentTick(), farm::Season::Spring).ok());
+    game.AdvanceTicks(farm::kWheatGrowTicks);
+    EXPECT(game.Planting().Harvest(game.Player(), 0).ok());
+
+    const auto& achievements = game.Achievements().All();
+    const auto first_harvest = static_cast<std::size_t>(farm::AchievementID::FirstHarvest);
+    EXPECT(first_harvest < achievements.size());
+    if (first_harvest < achievements.size()) {
+        EXPECT(achievements[first_harvest].completed);
+    }
+
+    farm::Game copied;
+    copied = game;
+    EXPECT(copied.Player().TryAddItem(farm::ItemId::WheatSeed, 1).ok());
+    EXPECT(copied.Planting().TryPlantAt(copied.Player(), 0, farm::ItemId::WheatSeed,
+                                        copied.Time().CurrentTick(), farm::Season::Spring).ok());
+    copied.AdvanceTicks(farm::kWheatGrowTicks);
+    EXPECT(copied.Planting().Harvest(copied.Player(), 0).ok());
+}
+
+void TestFishingEconomy() {
+    farm::Game game;
+    const int initial_gold = game.Player().Gold();
+    EXPECT_EQ(game.Fishing().BaitCount(), 3);
+
+    EXPECT(game.Fishing().BuyBait(game.Player(), 5).ok());
+    EXPECT_EQ(game.Fishing().BaitCount(), 8);
+    EXPECT_EQ(game.Player().Gold(), initial_gold - game.Fishing().BaitPrice() * 5);
+
+    EXPECT(game.Fishing().UpgradeRod(game.Player()).ok());
+    EXPECT_EQ(game.Fishing().RodLevel(), 2);
+    EXPECT_EQ(game.Player().Gold(), initial_gold - game.Fishing().BaitPrice() * 5 - 100);
+
+    auto failed_upgrade = game.Fishing().UpgradeRod(game.Player());
+    EXPECT(!failed_upgrade.ok());
+    EXPECT_EQ(failed_upgrade.code, farm::ErrorCode::InsufficientGold);
+    EXPECT_EQ(game.Fishing().RodLevel(), 2);
+
+    game.Fishing().RecordCatch(3);
+    game.Fishing().RecordCatch(7);
+    const int basket_value = game.Fishing().CollectionValue();
+    EXPECT(basket_value > 0);
+    auto sold = game.Fishing().SellAllFish(game.Player());
+    EXPECT(sold.ok());
+    EXPECT_EQ(sold.value, basket_value);
+    EXPECT_EQ(game.Fishing().CollectionValue(), 0);
+}
+
 }  // namespace
 
 int main() {
@@ -294,6 +346,8 @@ int main() {
     TestRandomEventAndOfflineProgress();
     TestUnlockDagLandAndAdvancedAnimals();
     TestFullLoop();
+    TestGameAssignmentKeepsEventBindings();
+    TestFishingEconomy();
 
     if (g_failures != 0) {
         std::cerr << g_failures << " assertion(s) failed\n";
