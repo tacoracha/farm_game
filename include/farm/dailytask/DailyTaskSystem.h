@@ -35,7 +35,7 @@ class PlayerState;
 
 class DailyTaskSystem {
 public:
-    static DailyTaskSystem& Instance();
+    DailyTaskSystem();
 
     void Init();
     void Tick(int current_tick, PlayerState& player);
@@ -56,7 +56,7 @@ public:
     bool HasNewComplete() const { return has_new_; }
     void ClearNewFlag() { has_new_ = false; }
 
-    // Save / Load
+    // Save / Load (called by SaveManager via Game)
     void ClearForLoad();
     void SetForLoad(int last_day, const std::vector<DailyTask>& tasks);
 
@@ -64,7 +64,6 @@ public:
     int CurrentDayForSave() const { return last_refresh_day_; }
 
 private:
-    DailyTaskSystem() = default;
     void RefreshTasks(PlayerState& player);
     void CheckComplete(DailyTask& task, PlayerState& player);
 

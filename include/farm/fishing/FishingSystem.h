@@ -31,7 +31,7 @@ struct FishRecord {
 
 class FishingSystem {
 public:
-    static FishingSystem& Instance();
+    FishingSystem();
 
     void Init();
     void Tick(int current_tick);
@@ -48,16 +48,17 @@ public:
     int GetReelPos() const;            // 0-100, moving pointer position
     int GetReelGreenStart() const;     // green zone start
     int GetReelGreenEnd() const;       // green zone end
-    bool TryReelIn(int current_tick);  // true=success, false=fail, runs mini-game check
+    Result<void> TryReelIn(int current_tick);  // returns Result with specific error on failure
     FishingState State() const { return state_; }
 
     // Bait & rod
     int BaitCount() const { return bait_count_; }
-    void AddBait(int n) { bait_count_ += n; }
+    int BaitPrice() const;
+    Result<void> BuyBait(PlayerState& player, int quantity);
     bool UseBait();
     int RodLevel() const { return rod_level_; }
     int RodUpgradeCost() const;
-    bool UpgradeRod();
+    Result<void> UpgradeRod(PlayerState& player);
 
     // Fish info
     static const std::vector<FishDef>& FishList();
@@ -66,7 +67,11 @@ public:
     // Collection
     const std::vector<FishRecord>& Collection() const { return collection_; }
     int TotalCatches() const { return total_catches_; }
+    int CollectionCount(int fish_id) const;
+    int CollectionValue() const;
     void RecordCatch(int fish_id);
+    Result<int> SellFish(PlayerState& player, int fish_id, int quantity);
+    Result<int> SellAllFish(PlayerState& player);
 
     // Last catch
     int LastCaughtFish() const { return last_fish_id_; }
@@ -81,7 +86,6 @@ public:
     const std::vector<FishRecord>& CollectionForSave() const { return collection_; }
 
 private:
-    FishingSystem() = default;
     int RollFish(int current_tick) const;
 
     int bait_count_ = 0;

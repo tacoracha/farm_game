@@ -66,13 +66,13 @@ void TestPlanting() {
     farm::Game game;
     const int seeds = game.Player().ItemCount(farm::ItemId::WheatSeed);
     EXPECT(game.Planting().TryPlantAt(game.Player(), 0, farm::ItemId::WheatSeed,
-                                      game.Time().CurrentTick()).ok());
+                                      game.Time().CurrentTick(), farm::Season::Spring).ok());
     EXPECT_EQ(game.Player().ItemCount(farm::ItemId::WheatSeed), seeds - 1);
     EXPECT_EQ(game.Planting().TryPlantAt(game.Player(), 1, farm::ItemId::CornSeed,
-                                         game.Time().CurrentTick()).code,
+                                         game.Time().CurrentTick(), farm::Season::Spring).code,
               farm::ErrorCode::SeedNotUnlocked);
     EXPECT_EQ(game.Planting().TryPlantAt(game.Player(), 0, farm::ItemId::WheatSeed,
-                                         game.Time().CurrentTick()).code,
+                                         game.Time().CurrentTick(), farm::Season::Spring).code,
               farm::ErrorCode::PlotNotIdle);
     EXPECT(game.Planting().WaterPlot(0, game.Time().CurrentTick()).ok());
     EXPECT_EQ(game.Planting().WaterPlot(0, game.Time().CurrentTick()).code,
@@ -89,7 +89,7 @@ void TestPlanting() {
 void TestHarvestWarehouseFullKeepsCrop() {
     farm::Game game;
     EXPECT(game.Planting().TryPlantAt(game.Player(), 0, farm::ItemId::WheatSeed,
-                                      game.Time().CurrentTick()).ok());
+                                      game.Time().CurrentTick(), farm::Season::Spring).ok());
     game.AdvanceTicks(farm::kWheatGrowTicks);
     FillWarehouse(game.Player());
     EXPECT_EQ(game.Planting().Harvest(game.Player(), 0).code, farm::ErrorCode::WarehouseFull);
@@ -99,11 +99,11 @@ void TestHarvestWarehouseFullKeepsCrop() {
 void TestWorkshopAndRanch() {
     farm::Game game;
     EXPECT(game.Player().TryAddItem(farm::ItemId::Wheat, 4).ok());
-    EXPECT(game.Workshop().StartProduction(game.Player(), farm::RecipeId::ChickenFeed, 2).ok());
+    EXPECT(game.Workshop().StartProduction(game.Player(), farm::RecipeId::ChickenFeed, 2,
+                                           game.Player().Level()).ok());
     EXPECT_EQ(game.Player().ItemCount(farm::ItemId::Wheat), 0);
     game.AdvanceTicks(farm::kChickenFeedTicks);
-    EXPECT_EQ(game.Workshop().ShelfChickenFeed(), 1);
-    EXPECT(game.Workshop().ClaimProduct(game.Player()).ok());
+    // Auto-collected to warehouse directly
     EXPECT_EQ(game.Player().ItemCount(farm::ItemId::ChickenFeed), 1);
 
     auto chicken = game.Ranch().BuyAnimal(game.Player(), 1, farm::AnimalKind::Chicken);
@@ -116,14 +116,21 @@ void TestWorkshopAndRanch() {
 
 void TestOrderCooldownAndReward() {
     farm::Game game;
+    // Advance one tick to initialize orders
+    game.AdvanceTicks(1);
     const farm::OrderData order = game.Orders().Orders()[0];
-    EXPECT(game.Player().TryAddItem(order.item, order.quantity).ok());
+    EXPECT(!order.requirements.empty());
+    // Add all required items
+    for (const auto& req : order.requirements) {
+        EXPECT(game.Player().TryAddItem(req.item, req.quantity).ok());
+    }
     const int gold = game.Player().Gold();
     EXPECT(game.Orders().CompleteOrder(game.Player(), 0, game.Time().CurrentTick()).ok());
     EXPECT_EQ(game.Player().Gold(), gold + order.reward_gold);
     EXPECT_EQ(game.Orders().Orders()[0].state, farm::OrderState::CoolingDown);
     game.AdvanceTicks(farm::kOrderCompleteCooldownTicks);
     EXPECT_EQ(game.Orders().Orders()[0].state, farm::OrderState::Available);
+    // New order should have different id
     EXPECT(game.Orders().Orders()[0].id != order.id);
 }
 
@@ -150,7 +157,7 @@ void TestSaveRoundTripAndErrors() {
     EXPECT(game.Player().UnlockContent(farm::UnlockId::CornSeed).ok());
     EXPECT(game.Player().TryAddItem(farm::ItemId::CornSeed, 1).ok());
     EXPECT(game.Planting().TryPlantAt(game.Player(), 0, farm::ItemId::CornSeed,
-                                      game.Time().CurrentTick()).ok());
+                                      game.Time().CurrentTick(), farm::Season::Spring).ok());
     game.AdvanceTicks(2);
     EXPECT(game.ManualSave(path).ok());
 
@@ -239,9 +246,11 @@ void TestUnlockDagLandAndAdvancedAnimals() {
     EXPECT(cow.ok());
     EXPECT(game.Player().TryAddItem(farm::ItemId::Corn, 2).ok());
     EXPECT(game.Player().TryAddItem(farm::ItemId::Carrot, 1).ok());
-    EXPECT(game.Workshop().StartProduction(game.Player(), farm::RecipeId::CowFeed, 1).ok());
+    EXPECT(game.Workshop().StartProduction(game.Player(), farm::RecipeId::CowFeed, 1,
+                                           game.Player().Level()).ok());
     game.AdvanceTicks(farm::kCowFeedTicks);
-    EXPECT(game.Workshop().ClaimProduct(game.Player()).ok());
+    // Auto-collected to warehouse
+    EXPECT_EQ(game.Player().ItemCount(farm::ItemId::CowFeed), 1);
     EXPECT(game.Ranch().FeedAnimal(game.Player(), barn.value, cow.value, game.Time().CurrentTick()).ok());
     game.AdvanceTicks(farm::kCowMilkTicks);
     EXPECT(game.Ranch().HarvestAnimal(game.Player(), barn.value, cow.value).ok());
@@ -253,20 +262,74 @@ void TestFullLoop() {
     EXPECT(game.Shop().BuyItem(game.Player(), farm::ItemId::WheatSeed, 2).ok());
     for (int i = 0; i < 2; ++i) {
         EXPECT(game.Planting().TryPlant(game.Player(), farm::ItemId::WheatSeed,
-                                        game.Time().CurrentTick()).ok());
+                                        game.Time().CurrentTick(), farm::Season::Spring).ok());
     }
     game.AdvanceTicks(farm::kWheatGrowTicks);
     EXPECT(game.Planting().Harvest(game.Player(), 0).ok());
     EXPECT(game.Planting().Harvest(game.Player(), 1).ok());
-    EXPECT(game.Workshop().StartProduction(game.Player(), farm::RecipeId::ChickenFeed, 1).ok());
+    EXPECT(game.Workshop().StartProduction(game.Player(), farm::RecipeId::ChickenFeed, 1,
+                                           game.Player().Level()).ok());
     game.AdvanceTicks(farm::kChickenFeedTicks);
-    EXPECT(game.Workshop().ClaimProduct(game.Player()).ok());
+    // Auto-collected to warehouse
+    EXPECT_EQ(game.Player().ItemCount(farm::ItemId::ChickenFeed), 1);
     auto chicken = game.Ranch().BuyAnimal(game.Player(), 1, farm::AnimalKind::Chicken);
     EXPECT(chicken.ok());
     EXPECT(game.Ranch().FeedAnimal(game.Player(), 1, chicken.value, game.Time().CurrentTick()).ok());
     game.AdvanceTicks(farm::kChickenEggTicks);
     EXPECT(game.Ranch().HarvestAnimal(game.Player(), 1, chicken.value).ok());
     EXPECT(game.Player().ItemCount(farm::ItemId::Egg) > 0);
+}
+
+void TestGameAssignmentKeepsEventBindings() {
+    farm::Game game;
+    game = farm::Game::NewGame();
+    EXPECT(game.Planting().TryPlantAt(game.Player(), 0, farm::ItemId::WheatSeed,
+                                      game.Time().CurrentTick(), farm::Season::Spring).ok());
+    game.AdvanceTicks(farm::kWheatGrowTicks);
+    EXPECT(game.Planting().Harvest(game.Player(), 0).ok());
+
+    const auto& achievements = game.Achievements().All();
+    const auto first_harvest = static_cast<std::size_t>(farm::AchievementID::FirstHarvest);
+    EXPECT(first_harvest < achievements.size());
+    if (first_harvest < achievements.size()) {
+        EXPECT(achievements[first_harvest].completed);
+    }
+
+    farm::Game copied;
+    copied = game;
+    EXPECT(copied.Player().TryAddItem(farm::ItemId::WheatSeed, 1).ok());
+    EXPECT(copied.Planting().TryPlantAt(copied.Player(), 0, farm::ItemId::WheatSeed,
+                                        copied.Time().CurrentTick(), farm::Season::Spring).ok());
+    copied.AdvanceTicks(farm::kWheatGrowTicks);
+    EXPECT(copied.Planting().Harvest(copied.Player(), 0).ok());
+}
+
+void TestFishingEconomy() {
+    farm::Game game;
+    const int initial_gold = game.Player().Gold();
+    EXPECT_EQ(game.Fishing().BaitCount(), 3);
+
+    EXPECT(game.Fishing().BuyBait(game.Player(), 5).ok());
+    EXPECT_EQ(game.Fishing().BaitCount(), 8);
+    EXPECT_EQ(game.Player().Gold(), initial_gold - game.Fishing().BaitPrice() * 5);
+
+    EXPECT(game.Fishing().UpgradeRod(game.Player()).ok());
+    EXPECT_EQ(game.Fishing().RodLevel(), 2);
+    EXPECT_EQ(game.Player().Gold(), initial_gold - game.Fishing().BaitPrice() * 5 - 100);
+
+    auto failed_upgrade = game.Fishing().UpgradeRod(game.Player());
+    EXPECT(!failed_upgrade.ok());
+    EXPECT_EQ(failed_upgrade.code, farm::ErrorCode::InsufficientGold);
+    EXPECT_EQ(game.Fishing().RodLevel(), 2);
+
+    game.Fishing().RecordCatch(3);
+    game.Fishing().RecordCatch(7);
+    const int basket_value = game.Fishing().CollectionValue();
+    EXPECT(basket_value > 0);
+    auto sold = game.Fishing().SellAllFish(game.Player());
+    EXPECT(sold.ok());
+    EXPECT_EQ(sold.value, basket_value);
+    EXPECT_EQ(game.Fishing().CollectionValue(), 0);
 }
 
 }  // namespace
@@ -283,6 +346,8 @@ int main() {
     TestRandomEventAndOfflineProgress();
     TestUnlockDagLandAndAdvancedAnimals();
     TestFullLoop();
+    TestGameAssignmentKeepsEventBindings();
+    TestFishingEconomy();
 
     if (g_failures != 0) {
         std::cerr << g_failures << " assertion(s) failed\n";

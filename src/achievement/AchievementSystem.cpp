@@ -54,7 +54,7 @@ constexpr int kAchievementCount = static_cast<int>(AchievementID::COUNT);
 
 }  // namespace
 
-const char* farm::CategoryName(AchievementCategory cat) {
+const char* CategoryName(AchievementCategory cat) {
     switch (cat) {
         case AchievementCategory::Plant:    return "种植";
         case AchievementCategory::Ranch:    return "牧场";
@@ -66,9 +66,8 @@ const char* farm::CategoryName(AchievementCategory cat) {
     return "";
 }
 
-AchievementSystem& AchievementSystem::Instance() {
-    static AchievementSystem instance;
-    return instance;
+AchievementSystem::AchievementSystem() {
+    Init();
 }
 
 const AchievementDef* AchievementSystem::FindDef(AchievementID id) const {
@@ -115,7 +114,6 @@ void AchievementSystem::CheckAndAward(Achievement& a) {
 void AchievementSystem::OnHarvestCrop(ItemId crop) {
     if (!initialized_) return;
     ++total_harvests_;
-    // Individual achievements
     for (Achievement& a : achievements_) {
         switch (a.id) {
             case AchievementID::FirstHarvest:
@@ -261,7 +259,6 @@ void AchievementSystem::CheckPeriodic(int current_tick, int total_animals,
         current_day_ = day;
     }
 
-    // Animal count achievements
     for (Achievement& a : achievements_) {
         switch (a.id) {
             case AchievementID::ChickenMaster:
@@ -274,7 +271,6 @@ void AchievementSystem::CheckPeriodic(int current_tick, int total_animals,
                 a.current = total_animals;
                 break;
             case AchievementID::AllSeeds:
-                // Updated externally - but we track via the def target
                 break;
             case AchievementID::AllBuildings:
                 break;
@@ -288,7 +284,6 @@ void AchievementSystem::CheckPeriodic(int current_tick, int total_animals,
         CheckAndAward(a);
     }
 
-    // Seed/buildings/recipe achievements are updated externally
     for (Achievement& a : achievements_) {
         if (a.id == AchievementID::AllSeeds) {
             a.current = seeds_unlocked_;
@@ -343,7 +338,6 @@ void AchievementSystem::SetProgressIfNotDone(AchievementID id, int current) {
     }
 }
 
-// Expose setters for external tracking
 void AchievementSystem::SetSeedsUnlocked(int n) { seeds_unlocked_ = n; }
 void AchievementSystem::SetBuildingsUnlocked(int n) { buildings_unlocked_ = n; }
 void AchievementSystem::SetRecipesKnown(int n) { process_recipes_known_ = n; }

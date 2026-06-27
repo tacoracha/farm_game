@@ -23,6 +23,22 @@ enum class ItemId : std::uint8_t {
     Milk,
     Wool,
     Fertilizer,
+    Bread,
+    Cheese,
+    Jam,
+    StrawberrySeed,
+    PumpkinSeed,
+    MushroomSeed,
+    Strawberry,
+    Pumpkin,
+    Mushroom,
+};
+
+enum class Season : std::uint8_t {
+    Spring,
+    Summer,
+    Autumn,
+    Winter,
 };
 
 enum class ItemCategory : std::uint8_t {
@@ -31,6 +47,7 @@ enum class ItemCategory : std::uint8_t {
     Feed,
     AnimalProduct,
     Consumable,
+    ProcessedGood,
 };
 
 enum class ErrorCode : std::uint16_t {
@@ -95,6 +112,11 @@ struct Result<void> {
 struct ItemStack {
     ItemId item = ItemId::Wheat;
     int quantity = 0;
+};
+
+struct OrderRequirement {
+    ItemId item = ItemId::Wheat;
+    int quantity = 1;
 };
 
 struct ItemInfo {
@@ -177,6 +199,9 @@ enum class FactoryKind : std::uint8_t {
 enum class RecipeId : std::uint8_t {
     ChickenFeed,
     CowFeed,
+    Bread,
+    Cheese,
+    Jam,
 };
 
 enum class UnlockId : std::uint8_t {
@@ -191,6 +216,10 @@ enum class UnlockId : std::uint8_t {
     Chicken,
     Cow,
     Sheep,
+    StrawberrySeed,
+    PumpkinSeed,
+    MushroomSeed,
+    GreenhouseTech,
 };
 
 enum class UnlockCategory : std::uint8_t {

@@ -89,7 +89,7 @@ class PlayerState;
 
 class AchievementSystem {
 public:
-    static AchievementSystem& Instance();
+    AchievementSystem();
 
     // Init all achievement configs
     void Init();
@@ -114,11 +114,10 @@ public:
     bool HasNew() const { return has_new_; }
     void ClearNewFlag() { has_new_ = false; }
 
-    // Save / Load
+    // Save / Load (called by SaveManager via Game)
     void ClearForLoad();
     void SetProgressForLoad(AchievementID id, int current, bool completed);
     void SetProgressIfNotDone(AchievementID id, int current);
-    // Serialize helpers
     const std::vector<Achievement>& AchievementsForSave() const { return achievements_; }
 
     // Popup callback registration
@@ -155,7 +154,6 @@ public:
     const std::set<AnimalKind>& OwnedAnimalsForSave() const;
 
 private:
-    AchievementSystem() = default;
     void CheckAndAward(Achievement& a);
     const AchievementDef* FindDef(AchievementID id) const;
 

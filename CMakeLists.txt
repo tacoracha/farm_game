@@ -19,6 +19,10 @@ add_library(farm_game_core STATIC
     src/order/OrderSystem.cpp
     src/shop/ShopSystem.cpp
     src/persistence/SaveManager.cpp
+    src/achievement/AchievementSystem.cpp
+    src/dailytask/DailyTaskSystem.cpp
+    src/fishing/FishingSystem.cpp
+    src/merchant/TravelingMerchantSystem.cpp
 )
 
 target_include_directories(farm_game_core PUBLIC
@@ -28,7 +32,7 @@ target_include_directories(farm_game_core PUBLIC
 if(MINGW)
     target_compile_options(farm_game_core PRIVATE -Wall -Wextra -Wpedantic)
 elseif(MSVC)
-    target_compile_options(farm_game_core PRIVATE /W4)
+    target_compile_options(farm_game_core PRIVATE /W4 /utf-8)
 endif()
 
 add_executable(farm_game
@@ -37,6 +41,9 @@ add_executable(farm_game
     src/ui/TextureManager.cpp
 )
 target_link_libraries(farm_game PRIVATE farm_game_core)
+if(MSVC)
+    target_compile_options(farm_game PRIVATE /utf-8)
+endif()
 
 if(WIN32)
     set_target_properties(farm_game PROPERTIES WIN32_EXECUTABLE TRUE)
@@ -48,6 +55,9 @@ add_executable(farm_game_tests
     tests/test_farm_game.cpp
 )
 target_link_libraries(farm_game_tests PRIVATE farm_game_core)
+if(MSVC)
+    target_compile_options(farm_game_tests PRIVATE /utf-8)
+endif()
 add_test(NAME farm_game_tests COMMAND farm_game_tests)
 
 install(TARGETS farm_game RUNTIME DESTINATION .)

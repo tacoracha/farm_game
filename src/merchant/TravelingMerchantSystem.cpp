@@ -8,9 +8,8 @@
 
 namespace farm {
 
-TravelingMerchantSystem& TravelingMerchantSystem::Instance() {
-    static TravelingMerchantSystem instance;
-    return instance;
+TravelingMerchantSystem::TravelingMerchantSystem() {
+    Init();
 }
 
 void TravelingMerchantSystem::Init() {
@@ -23,15 +22,12 @@ void TravelingMerchantSystem::Init() {
 
 int TravelingMerchantSystem::DaysRemaining() const {
     if (!present_) return 0;
-    int current_day = appear_tick_ / kTicksPerDay + 1;
-    int appear_day = appear_tick_ / kTicksPerDay + 1;
     return 1;  // stays 1 full day
 }
 
 void TravelingMerchantSystem::TryAppear(int current_tick) {
     int day = current_tick / kTicksPerDay + 1;
     if (day >= next_check_day_ && !present_) {
-        // 40% chance to appear each eligible day
         int seed = day * 37 + 13;
         if ((seed % 100) < 40) {
             present_ = true;
@@ -39,10 +35,8 @@ void TravelingMerchantSystem::TryAppear(int current_tick) {
             GenerateSaleItems();
             GenerateBuyOffers();
         }
-        // Next check in 2-5 days
         next_check_day_ = day + 2 + ((day * 17) % 4);
     }
-    // Leave after 1 day
     if (present_ && day > (appear_tick_ / kTicksPerDay + 1)) {
         present_ = false;
         sale_items_.clear();
@@ -54,7 +48,6 @@ void TravelingMerchantSystem::Tick(int current_tick) {
     TryAppear(current_tick);
 }
 
-// --- Generate random sale items ---
 void TravelingMerchantSystem::GenerateSaleItems() {
     sale_items_.clear();
     int seed = appear_tick_ * 41 + 7;
@@ -76,20 +69,17 @@ void TravelingMerchantSystem::GenerateSaleItems() {
     };
     constexpr int pool_sz = sizeof(pool) / sizeof(pool[0]);
 
-    // Pick 4-6 random items
     int count = 4 + (seed % 3);
     for (int i = 0; i < count; ++i) {
         int idx = (seed + i * 11) % pool_sz;
         const SaleTemplate& t = pool[idx];
         int stock = 1 + ((seed + i * 7) % t.max_stock);
-        // Randomize price: ±20%
         int price = t.base_price + (seed + i * 13) % std::max(1, t.base_price / 2) - t.base_price / 4;
         if (price < 1) price = 1;
         sale_items_.push_back({t.item, price, stock, false});
     }
 }
 
-// --- Generate random buy offers ---
 void TravelingMerchantSystem::GenerateBuyOffers() {
     buy_offers_.clear();
     int seed = appear_tick_ * 73 + 23;
@@ -109,7 +99,6 @@ void TravelingMerchantSystem::GenerateBuyOffers() {
     };
     constexpr int pool_sz = sizeof(pool) / sizeof(pool[0]);
 
-    // Pick 2-3 random offers
     int count = 2 + (seed % 2);
     for (int i = 0; i < count; ++i) {
         int idx = (seed + i * 19) % pool_sz;
@@ -120,7 +109,6 @@ void TravelingMerchantSystem::GenerateBuyOffers() {
     }
 }
 
-// --- Buy from merchant (player buys) ---
 Result<void> TravelingMerchantSystem::BuyFromMerchant(PlayerState& player, int index) {
     if (index < 0 || index >= static_cast<int>(sale_items_.size()))
         return Result<void>::failure(ErrorCode::InvalidItem);
@@ -130,7 +118,6 @@ Result<void> TravelingMerchantSystem::BuyFromMerchant(PlayerState& player, int i
     if (!spent.ok()) return spent;
     auto added = player.TryAddItem(mi.item, 1);
     if (!added.ok()) {
-        // Refund on warehouse full
         player.AddGold(mi.price);
         return added;
     }
@@ -139,7 +126,6 @@ Result<void> TravelingMerchantSystem::BuyFromMerchant(PlayerState& player, int i
     return Result<void>::success();
 }
 
-// --- Sell to merchant (player sells) ---
 Result<void> TravelingMerchantSystem::SellToMerchant(PlayerState& player, int index) {
     if (index < 0 || index >= static_cast<int>(buy_offers_.size()))
         return Result<void>::failure(ErrorCode::InvalidItem);
@@ -154,7 +140,6 @@ Result<void> TravelingMerchantSystem::SellToMerchant(PlayerState& player, int in
     return Result<void>::success();
 }
 
-// --- Save / Load ---
 void TravelingMerchantSystem::ClearForLoad() {
     present_ = false;
     appear_tick_ = 0;

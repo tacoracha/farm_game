@@ -25,7 +25,7 @@ struct MerchantOffer {
 
 class TravelingMerchantSystem {
 public:
-    static TravelingMerchantSystem& Instance();
+    TravelingMerchantSystem();
 
     void Init();
     void Tick(int current_tick);
@@ -50,7 +50,6 @@ public:
     const std::vector<MerchantOffer>& OffersForSave() const { return buy_offers_; }
 
 private:
-    TravelingMerchantSystem() = default;
     void GenerateSaleItems();
     void GenerateBuyOffers();
     void TryAppear(int current_tick);

@@ -9,9 +9,8 @@
 
 namespace farm {
 
-DailyTaskSystem& DailyTaskSystem::Instance() {
-    static DailyTaskSystem instance;
-    return instance;
+DailyTaskSystem::DailyTaskSystem() {
+    // Init() must be called explicitly after construction to set up task_pool_
 }
 
 void DailyTaskSystem::Init() {
@@ -33,19 +32,16 @@ void DailyTaskSystem::Init() {
 }
 
 void DailyTaskSystem::RefreshTasks(PlayerState& player) {
-    // Pick 3 random tasks of different types from the pool
     today_tasks_.clear();
     std::vector<int> indices;
     for (int i = 0; i < static_cast<int>(task_pool_.size()); ++i) indices.push_back(i);
 
-    // Fisher-Yates shuffle using a simple PRNG seeded by day
     int day_seed = last_refresh_day_ * 31 + 17;
     for (int i = static_cast<int>(indices.size()) - 1; i > 0; --i) {
         int j = (day_seed * (i + 1) + i * 7) % (i + 1);
         std::swap(indices[i], indices[j]);
     }
 
-    // Pick up to 3 tasks with different types
     int picked = 0;
     std::set<DailyTaskType> used_types;
     for (int idx : indices) {
@@ -69,7 +65,6 @@ void DailyTaskSystem::CheckComplete(DailyTask& task, PlayerState& player) {
         player.AddGold(task.reward_gold);
         player.AddExperience(task.reward_exp);
         if (!task.reward_text.empty()) {
-            // Parse reward text: e.g. "肥料x2" -> try to add Fertilizer x2
             if (task.reward_text.find("肥料") != std::string::npos) {
                 int qty = 1;
                 auto pos = task.reward_text.find('x');
@@ -91,7 +86,6 @@ void DailyTaskSystem::Tick(int current_tick, PlayerState& player) {
         last_refresh_day_ = day;
         RefreshTasks(player);
     }
-    // Check completions
     for (DailyTask& t : today_tasks_) {
         CheckComplete(t, player);
     }
@@ -103,7 +97,6 @@ void DailyTaskSystem::OnHarvestCrop(int count) {
     for (DailyTask& t : today_tasks_) {
         if (t.type == DailyTaskType::HarvestCrop && !t.completed) {
             t.current = std::min(t.target, t.current + count);
-            // CheckComplete needs PlayerState; handled in Tick or via stored pointer
         }
     }
 }
@@ -183,7 +176,6 @@ void DailyTaskSystem::SetForLoad(int last_day, const std::vector<DailyTask>& tas
     last_refresh_day_ = last_day;
     today_tasks_ = tasks;
     has_new_ = false;
-    // Re-check completed tasks for rewards already given
 }
 
 }  // namespace farm

@@ -10,37 +10,40 @@ namespace farm {
 
 namespace {
 
-const FishDef kFishDefs[] = {
+constexpr int kFishCount = 15;
+constexpr int kBaitPrice = 3;
+constexpr int kMaxRodLevel = 5;
+
+const FishDef kFishDefs[kFishCount] = {
     // Spring common
-    {1, "鲫鱼", FishRarity::Common, 8, static_cast<Season>(1), false, 30},
-    {2, "鲤鱼", FishRarity::Common, 10, static_cast<Season>(1), false, 35},
-    {3, "草鱼", FishRarity::Common, 12, static_cast<Season>(0xF), false, 40},
+    {1, "spring_carp", FishRarity::Common, 8, static_cast<Season>(1), false, 30},
+    {2, "brook_trout", FishRarity::Common, 10, static_cast<Season>(1), false, 35},
+    {3, "grass_fish", FishRarity::Common, 12, static_cast<Season>(0xF), false, 40},
     // Summer
-    {4, "鲈鱼", FishRarity::Common, 15, static_cast<Season>(2), false, 38},
-    {5, "鳊鱼", FishRarity::Common, 13, static_cast<Season>(2), false, 42},
+    {4, "summer_bass", FishRarity::Common, 15, static_cast<Season>(2), false, 38},
+    {5, "sun_perch", FishRarity::Common, 13, static_cast<Season>(2), false, 42},
     // Autumn
-    {6, "青鱼", FishRarity::Common, 14, static_cast<Season>(4), false, 36},
-    {7, "鳜鱼", FishRarity::Rare, 28, static_cast<Season>(4), false, 55},
+    {6, "bluegill", FishRarity::Common, 14, static_cast<Season>(4), false, 36},
+    {7, "golden_perch", FishRarity::Rare, 28, static_cast<Season>(4), false, 55},
     // Winter
-    {8, "鲢鱼", FishRarity::Common, 11, static_cast<Season>(8), false, 40},
-    {9, "鳕鱼", FishRarity::Common, 16, static_cast<Season>(8), false, 45},
+    {8, "ice_carp", FishRarity::Common, 11, static_cast<Season>(8), false, 40},
+    {9, "silver_pike", FishRarity::Common, 16, static_cast<Season>(8), false, 45},
     // Rare (multi-season)
-    {10, "鲶鱼", FishRarity::Rare, 35, static_cast<Season>(0xF), true, 60},
-    {11, "虹鳟", FishRarity::Rare, 40, static_cast<Season>(3), false, 58},
-    {12, "黑鱼", FishRarity::Rare, 45, static_cast<Season>(6), false, 62},
+    {10, "moon_carp", FishRarity::Rare, 35, static_cast<Season>(0xF), true, 60},
+    {11, "rainbow_trout", FishRarity::Rare, 40, static_cast<Season>(3), false, 58},
+    {12, "black_fish", FishRarity::Rare, 45, static_cast<Season>(6), false, 62},
     // Legendary
-    {13, "金龙鱼", FishRarity::Legendary, 120, static_cast<Season>(3), false, 85},
-    {14, "锦鲤王", FishRarity::Legendary, 150, static_cast<Season>(0xF), true, 90},
-    {15, "鲟鱼", FishRarity::Legendary, 200, static_cast<Season>(12), false, 92},
+    {13, "golden_dragon", FishRarity::Legendary, 120, static_cast<Season>(3), false, 85},
+    {14, "brocade_king", FishRarity::Legendary, 150, static_cast<Season>(0xF), true, 90},
+    {15, "sturgeon", FishRarity::Legendary, 200, static_cast<Season>(12), false, 92},
 };
 
-constexpr int kFishCount = sizeof(kFishDefs) / sizeof(kFishDefs[0]);
+// kFishCount declared above with the array
 
 }  // namespace
 
-FishingSystem& FishingSystem::Instance() {
-    static FishingSystem instance;
-    return instance;
+FishingSystem::FishingSystem() {
+    Init();
 }
 
 const std::vector<FishDef>& FishingSystem::FishList() {
@@ -87,6 +90,22 @@ bool FishingSystem::UseBait() {
     return true;
 }
 
+int FishingSystem::BaitPrice() const {
+    return kBaitPrice;
+}
+
+Result<void> FishingSystem::BuyBait(PlayerState& player, int quantity) {
+    if (quantity <= 0) {
+        return Result<void>::failure(ErrorCode::InvalidQuantity);
+    }
+    auto spent = player.TrySpendGold(kBaitPrice * quantity);
+    if (!spent.ok()) {
+        return spent;
+    }
+    bait_count_ += quantity;
+    return Result<void>::success();
+}
+
 int FishingSystem::GetBiteCountdown() const {
     return std::max(0, bite_tick_ - cast_tick_);  // approximate
 }
@@ -103,10 +122,20 @@ int FishingSystem::RodUpgradeCost() const {
     switch (rod_level_) { case 1: return 100; case 2: return 300; case 3: return 500; case 4: return 1000; default: return 0; }
 }
 
-bool FishingSystem::UpgradeRod() {
-    if (rod_level_ >= 5) return false;
+Result<void> FishingSystem::UpgradeRod(PlayerState& player) {
+    if (rod_level_ >= kMaxRodLevel) {
+        return Result<void>::failure(ErrorCode::ContentLocked);
+    }
+    const int cost = RodUpgradeCost();
+    if (cost <= 0) {
+        return Result<void>::failure(ErrorCode::ContentLocked);
+    }
+    auto spent = player.TrySpendGold(cost);
+    if (!spent.ok()) {
+        return spent;
+    }
     ++rod_level_;
-    return true;
+    return Result<void>::success();
 }
 
 int FishingSystem::RollFish(int current_tick) const {
@@ -138,8 +167,9 @@ int FishingSystem::RollFish(int current_tick) const {
     return candidates.back().fish->id;
 }
 
-bool FishingSystem::TryReelIn(int current_tick) {
-    if (state_ != FishingState::Biting) return false;
+Result<void> FishingSystem::TryReelIn(int current_tick) {
+    if (state_ != FishingState::Biting)
+        return Result<void>::failure(ErrorCode::AnimalNotReady);  // Not in biting state
     int pos = reel_pos_;
     int gs = GetReelGreenStart(), ge = GetReelGreenEnd();
     bool success = (pos >= gs && pos <= ge);
@@ -153,7 +183,8 @@ bool FishingSystem::TryReelIn(int current_tick) {
     state_ = FishingState::Idle;
     target_fish_id_ = -1;
     reel_pos_ = 0;
-    return success;
+    if (!success) return Result<void>::failure(ErrorCode::InvalidItem);  // Missed the fish
+    return Result<void>::success();
 }
 
 void FishingSystem::RecordCatch(int fish_id) {
@@ -162,6 +193,62 @@ void FishingSystem::RecordCatch(int fish_id) {
         if (r.fish_id == fish_id) { ++r.count; return; }
     }
     collection_.push_back({fish_id, 1, 0});
+}
+
+int FishingSystem::CollectionCount(int fish_id) const {
+    for (const FishRecord& record : collection_) {
+        if (record.fish_id == fish_id) {
+            return record.count;
+        }
+    }
+    return 0;
+}
+
+int FishingSystem::CollectionValue() const {
+    int value = 0;
+    for (const FishRecord& record : collection_) {
+        const FishDef* fish = GetFishDef(record.fish_id);
+        if (fish != nullptr && record.count > 0) {
+            value += fish->sell_price * record.count;
+        }
+    }
+    return value;
+}
+
+Result<int> FishingSystem::SellFish(PlayerState& player, int fish_id, int quantity) {
+    if (quantity <= 0) {
+        return Result<int>::failure(ErrorCode::InvalidQuantity);
+    }
+    const FishDef* fish = GetFishDef(fish_id);
+    if (fish == nullptr) {
+        return Result<int>::failure(ErrorCode::InvalidItem);
+    }
+    for (auto it = collection_.begin(); it != collection_.end(); ++it) {
+        if (it->fish_id != fish_id) {
+            continue;
+        }
+        if (it->count < quantity) {
+            return Result<int>::failure(ErrorCode::InsufficientItem);
+        }
+        it->count -= quantity;
+        if (it->count == 0) {
+            collection_.erase(it);
+        }
+        const int gold = fish->sell_price * quantity;
+        player.AddGold(gold);
+        return Result<int>::success(gold);
+    }
+    return Result<int>::failure(ErrorCode::InsufficientItem);
+}
+
+Result<int> FishingSystem::SellAllFish(PlayerState& player) {
+    const int value = CollectionValue();
+    if (value <= 0) {
+        return Result<int>::failure(ErrorCode::InsufficientItem);
+    }
+    collection_.clear();
+    player.AddGold(value);
+    return Result<int>::success(value);
 }
 
 void FishingSystem::Tick(int current_tick) {
