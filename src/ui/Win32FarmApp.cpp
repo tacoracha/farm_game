@@ -107,6 +107,9 @@ constexpr int kMakeChickenFeed = 300;
 constexpr int kMakeChickenFeed3 = 301;
 constexpr int kMakeCowFeed = 302;
 constexpr int kClaimFeed = 303;
+constexpr int kMakeBread = 304;
+constexpr int kMakeCheese = 305;
+constexpr int kMakeJam = 306;
 
 constexpr int kCompleteOrder = 400;
 constexpr int kAbandonOrder = 401;
@@ -192,37 +195,54 @@ const wchar_t* SpeedName(GameSpeed speed) {
 const wchar_t* ItemName(ItemId item) {
     switch (item) {
         case ItemId::WheatSeed:
-            return L"小麦种子";
+            return L"\u5c0f\u9ea6\u79cd\u5b50";
         case ItemId::CornSeed:
-            return L"玉米种子";
+            return L"\u7389\u7c73\u79cd\u5b50";
         case ItemId::CarrotSeed:
-            return L"胡萝卜种子";
+            return L"\u80e1\u841d\u535c\u79cd\u5b50";
         case ItemId::TomatoSeed:
-            return L"番茄种子";
+            return L"\u756a\u8304\u79cd\u5b50";
         case ItemId::Wheat:
-            return L"小麦";
+            return L"\u5c0f\u9ea6";
         case ItemId::Corn:
-            return L"玉米";
+            return L"\u7389\u7c73";
         case ItemId::Carrot:
-            return L"胡萝卜";
+            return L"\u80e1\u841d\u535c";
         case ItemId::Tomato:
-            return L"番茄";
+            return L"\u756a\u8304";
         case ItemId::ChickenFeed:
-            return L"鸡饲料";
+            return L"\u9e21\u9972\u6599";
         case ItemId::CowFeed:
-            return L"牛饲料";
+            return L"\u725b\u9972\u6599";
         case ItemId::Egg:
-            return L"鸡蛋";
+            return L"\u9e21\u86cb";
         case ItemId::Milk:
-            return L"牛奶";
+            return L"\u725b\u5976";
         case ItemId::Wool:
-            return L"羊毛";
+            return L"\u7f8a\u6bdb";
         case ItemId::Fertilizer:
-            return L"肥料";
+            return L"\u80a5\u6599";
+        case ItemId::Bread:
+            return L"\u9762\u5305";
+        case ItemId::Cheese:
+            return L"\u5976\u916a";
+        case ItemId::Jam:
+            return L"\u679c\u9171";
+        case ItemId::StrawberrySeed:
+            return L"\u8349\u8393\u79cd\u5b50";
+        case ItemId::PumpkinSeed:
+            return L"\u5357\u74dc\u79cd\u5b50";
+        case ItemId::MushroomSeed:
+            return L"\u8611\u83c7\u83cc\u5305";
+        case ItemId::Strawberry:
+            return L"\u8349\u8393";
+        case ItemId::Pumpkin:
+            return L"\u5357\u74dc";
+        case ItemId::Mushroom:
+            return L"\u8611\u83c7";
     }
-    return L"未知物品";
+    return L"\u672a\u77e5\u7269\u54c1";
 }
-
 const wchar_t* ItemCategoryName(ItemCategory category) {
     switch (category) {
         case ItemCategory::Seed:
@@ -405,8 +425,63 @@ std::wstring ItemTextureKey(ItemId item) {
             return L"item_wool";
         case ItemId::Fertilizer:
             return L"item_fertilizer";
+        case ItemId::Bread:
+            return L"item_bread";
+        case ItemId::Cheese:
+            return L"item_cheese";
+        case ItemId::Jam:
+            return L"item_jam";
     }
     return L"item_unknown";
+}
+
+
+const wchar_t* RecipeName(RecipeId recipe) {
+    switch (recipe) {
+        case RecipeId::ChickenFeed:
+            return L"\u9e21\u9972\u6599";
+        case RecipeId::CowFeed:
+            return L"\u725b\u9972\u6599";
+        case RecipeId::Bread:
+            return L"\u9762\u5305";
+        case RecipeId::Cheese:
+            return L"\u5976\u916a";
+        case RecipeId::Jam:
+            return L"\u679c\u9171";
+    }
+    return L"\u914d\u65b9";
+}
+
+ItemId RecipeProduct(RecipeId recipe) {
+    switch (recipe) {
+        case RecipeId::ChickenFeed:
+            return ItemId::ChickenFeed;
+        case RecipeId::CowFeed:
+            return ItemId::CowFeed;
+        case RecipeId::Bread:
+            return ItemId::Bread;
+        case RecipeId::Cheese:
+            return ItemId::Cheese;
+        case RecipeId::Jam:
+            return ItemId::Jam;
+    }
+    return ItemId::ChickenFeed;
+}
+
+int RecipeTicks(RecipeId recipe) {
+    switch (recipe) {
+        case RecipeId::ChickenFeed:
+            return kChickenFeedTicks;
+        case RecipeId::CowFeed:
+            return kCowFeedTicks;
+        case RecipeId::Bread:
+            return kBreadTicks;
+        case RecipeId::Cheese:
+            return kCheeseTicks;
+        case RecipeId::Jam:
+            return kJamTicks;
+    }
+    return kChickenFeedTicks;
 }
 
 std::wstring AnimalTextureKey(AnimalKind kind, AnimalState state) {
@@ -766,6 +841,8 @@ int FarmWindow::Run() {
     textures_.Load(L"item_milk", L"assets/textures/items/milk.png", L"");
     textures_.Load(L"item_wool", L"assets/textures/items/wool.png", L"");
     textures_.Load(L"item_fertilizer", L"assets/textures/items/fertilizer.png", L"");
+    textures_.Load(L"item_bread", L"assets/textures/items/bread.png", L"");
+    textures_.Load(L"item_cheese", L"assets/textures/items/cheese.png", L"");
     textures_.Load(L"item_coin", L"assets/textures/items/coin.png", L"");
     textures_.Load(L"item_unknown", L"assets/textures/placeholders/item_unknown.png", L"");
     textures_.Load(L"weather_sunny", L"assets/textures/weather/sunny.png", L"");
@@ -1667,6 +1744,55 @@ void FarmWindow::DrawRanch(HDC hdc) {
         DrawTextureOrFill(hdc, icon, RECT{x, 136, x + 28, 164}, RGB(236, 192, 91));
         Text(hdc, x + 33, 139, label + L" " + std::to_wstring(count));
     };
+    auto MoodColor = [](int mood) -> COLORREF {
+        if (mood >= 75) {
+            return RGB(80, 154, 58);
+        }
+        if (mood >= 40) {
+            return RGB(213, 161, 52);
+        }
+        return RGB(184, 72, 55);
+    };
+    auto MoodLabel = [](int mood) -> const wchar_t* {
+        if (mood >= 75) {
+            return L"\u5f00\u5fc3";
+        }
+        if (mood >= 40) {
+            return L"\u5e73\u7a33";
+        }
+        return L"\u4f4e\u843d";
+    };
+    auto AnimalStageText = [](const AnimalView& animal) {
+        const int age_minutes = animal.age_ticks * kGameMinutesPerTick;
+        const int age_days = std::max(0, age_minutes / (24 * 60));
+        if (animal.is_baby) {
+            return L"\u5e7c\u5d3d  " + std::to_wstring(age_days) + L"\u5929";
+        }
+        const int max_days = std::max(1, animal.max_age * kGameMinutesPerTick / (24 * 60));
+        return L"\u6210\u5e74  " + std::to_wstring(age_days) + L"/" +
+               std::to_wstring(max_days) + L"\u5929";
+    };
+    auto AnimalStatusText = [](const AnimalView& animal) -> std::wstring {
+        if (animal.is_baby) {
+            return L"\u5e7c\u5d3d\u6210\u957f\u4e2d";
+        }
+        if (animal.state == AnimalState::Ready) {
+            return L"\u53ef\u6536\u83b7";
+        }
+        if (animal.state == AnimalState::Producing) {
+            return L"\u751f\u4ea7\u4e2d " +
+                   std::to_wstring(animal.remaining_ticks * kGameMinutesPerTick) +
+                   L"\u5206";
+        }
+        return L"\u5f85\u5582\u98df";
+    };
+    auto DrawMoodBar = [&](RECT bar, int mood) {
+        Fill(hdc, bar, RGB(107, 78, 46));
+        RECT fill = bar;
+        fill.right = bar.left + (bar.right - bar.left) * std::clamp(mood, 0, 100) / 100;
+        Fill(hdc, fill, MoodColor(mood));
+        Frame(bar, wood_dark);
+    };
 
     std::vector<RanchFacilityView> facilities = game_.Ranch().FacilityViews();
     if (facilities.empty()) {
@@ -1758,6 +1884,16 @@ void FarmWindow::DrawRanch(HDC hdc) {
         const AnimalKind kind = FacilityAnimalKind(facility.kind);
         const auto card_animals =
             game_.Ranch().AnimalViews(facility.id, game_.Time().CurrentTick());
+        int mood_sum = 0;
+        int baby_count = 0;
+        for (const AnimalView& animal : card_animals) {
+            mood_sum += animal.mood;
+            if (animal.is_baby) {
+                ++baby_count;
+            }
+        }
+        const int average_mood =
+            card_animals.empty() ? 0 : mood_sum / static_cast<int>(card_animals.size());
         const int visible_count = std::min(3, static_cast<int>(card_animals.size()));
         for (int i = 0; i < visible_count; ++i) {
             const int animal_x = x + 95 + i * 68;
@@ -1768,9 +1904,14 @@ void FarmWindow::DrawRanch(HDC hdc) {
         }
         SetTextColor(hdc, text_dark);
         std::wstringstream state;
-        state << L"待喂 " << facility.idle_count << L"   生产 " << facility.producing_count
-              << L"   可收 " << facility.ready_count;
-        Text(hdc, x + 18, 293, state.str());
+        state << L"\u5f85\u5582 " << facility.idle_count << L"   \u751f\u4ea7 "
+              << facility.producing_count << L"   \u53ef\u6536 " << facility.ready_count;
+        Text(hdc, x + 18, 286, state.str());
+        SetTextColor(hdc, text_muted);
+        Text(hdc, x + 18, 305,
+             L"\u5fc3\u60c5 " + std::to_wstring(average_mood) + L"   \u5e7c\u5d3d " +
+                 std::to_wstring(baby_count));
+        DrawMoodBar(RECT{x + 190, 309, x + 315, 317}, average_mood);
     }
 
     const RanchFacilityView* selected = nullptr;
@@ -1809,41 +1950,45 @@ void FarmWindow::DrawRanch(HDC hdc) {
         const int slot_width = 150;
         for (int slot = 0; slot < selected->capacity; ++slot) {
             const int x = 190 + slot * slot_width;
+            RECT animal_card{x + 6, 405, x + 136, 548};
+            Fill(hdc, animal_card, parchment_light);
+            Frame(animal_card, RGB(174, 125, 69));
             if (slot >= static_cast<int>(animals.size())) {
-                Frame(RECT{x + 8, 420, x + 130, 548}, RGB(174, 125, 69));
-                SetTextColor(hdc, RGB(116, 86, 54));
-                Text(hdc, x + 44, 472, L"空位");
+                SetTextColor(hdc, text_muted);
+                Text(hdc, x + 48, 466, L"\u7a7a\u4f4d");
                 continue;
             }
 
             const AnimalView& animal = animals[static_cast<std::size_t>(slot)];
-            const int sprite_width = animal.kind == AnimalKind::Chicken ? 86 : 122;
+            const int sprite_width = animal.kind == AnimalKind::Chicken ? 72 : 100;
+            const int sprite_left = x + 18 + (100 - sprite_width) / 2;
             DrawTextureOrFill(hdc, SceneAnimalKey(animal.kind),
-                              RECT{x + 18, 405, x + 18 + sprite_width, 510},
-                              RGB(244, 224, 171));
+                              RECT{sprite_left, 410, sprite_left + sprite_width, 466},
+                              animal.is_baby ? RGB(248, 232, 178) : RGB(244, 224, 171));
 
-            RECT badge{x + 13, 515, x + 132, 544};
-            COLORREF badge_color = RGB(183, 125, 51);
-            std::wstring badge_text = L"待喂";
-            if (animal.state == AnimalState::Ready) {
+            RECT badge{x + 12, 472, x + 130, 496};
+            COLORREF badge_color = animal.is_baby ? RGB(138, 118, 194) : RGB(183, 125, 51);
+            if (animal.state == AnimalState::Ready && !animal.is_baby) {
                 badge_color = RGB(80, 150, 43);
-                badge_text = L"可收获";
-            } else if (animal.state == AnimalState::Producing) {
+            } else if (animal.state == AnimalState::Producing && !animal.is_baby) {
                 badge_color = RGB(70, 139, 178);
-                badge_text = L"生产中 " +
-                             std::to_wstring(animal.remaining_ticks * kGameMinutesPerTick) +
-                             L"分";
             }
             Fill(hdc, badge, badge_color);
             Frame(badge, wood_dark);
             SetTextColor(hdc, RGB(255, 249, 224));
-            Text(hdc, badge.left + 11, badge.top + 4, badge_text);
-            if (animal.state == AnimalState::Ready) {
+            Text(hdc, badge.left + 8, badge.top + 3, AnimalStatusText(animal));
+
+            SetTextColor(hdc, text_dark);
+            Text(hdc, x + 14, 500, AnimalStageText(animal));
+            DrawMoodBar(RECT{x + 14, 522, x + 128, 532}, animal.mood);
+            SetTextColor(hdc, text_muted);
+            Text(hdc, x + 14, 533,
+                 L"\u5fc3\u60c5 " + std::to_wstring(animal.mood) + L" " + MoodLabel(animal.mood));
+            if (animal.state == AnimalState::Ready && !animal.is_baby) {
                 DrawTextureOrFill(hdc, ItemTextureKey(AnimalProduct(animal.kind)),
-                                  RECT{x + 101, 480, x + 129, 508}, RGB(240, 195, 79));
+                                  RECT{x + 103, 430, x + 131, 458}, RGB(240, 195, 79));
             }
         }
-
         SetTextColor(hdc, text_dark);
         Text(hdc, 55, 566,
              std::wstring(AnimalName(animal_kind)) + L"使用" +
@@ -1916,25 +2061,37 @@ void FarmWindow::DrawWorkshop(HDC hdc) {
     const WorkshopView view = game_.Workshop().View();
     const auto& queue = game_.Workshop().Queue();
     const COLORREF panel_fill = RGB(255, 239, 198);
-    const COLORREF slot_fill = RGB(250, 225, 174);
+    const COLORREF card_fill = RGB(250, 225, 174);
+    const COLORREF muted_fill = RGB(224, 210, 180);
     const COLORREF text_dark = RGB(63, 43, 24);
+    const COLORREF text_muted = RGB(117, 91, 62);
     const COLORREF wood_dark = RGB(105, 65, 30);
     const COLORREF wood_mid = RGB(151, 94, 43);
     const COLORREF action_green = RGB(86, 151, 34);
     SetTextColor(hdc, text_dark);
 
+    struct RecipeUi {
+        RecipeId recipe;
+        int button_id;
+        ItemId input_a;
+        int count_a;
+        ItemId input_b;
+        int count_b;
+        int min_level;
+    };
+
+    const std::vector<RecipeUi> recipes = {
+        {RecipeId::ChickenFeed, kMakeChickenFeed, ItemId::Wheat, 2, ItemId::Wheat, 0, 1},
+        {RecipeId::CowFeed, kMakeCowFeed, ItemId::Corn, 2, ItemId::Carrot, 1, 1},
+        {RecipeId::Bread, kMakeBread, ItemId::Wheat, 3, ItemId::Wheat, 0, 2},
+        {RecipeId::Cheese, kMakeCheese, ItemId::Milk, 2, ItemId::Wheat, 0, 3},
+        {RecipeId::Jam, kMakeJam, ItemId::Tomato, 3, ItemId::Wheat, 0, 4},
+    };
+
     auto Frame = [&](RECT rect, COLORREF color) {
         HBRUSH brush = CreateSolidBrush(color);
         FrameRect(hdc, &rect, brush);
         DeleteObject(brush);
-    };
-    auto WorkshopButton = [&](int id, RECT rect, const std::wstring& label) {
-        buttons_.push_back(UiButton{rect, id});
-        Fill(hdc, rect, action_green);
-        Frame(rect, RGB(45, 91, 24));
-        SetTextColor(hdc, RGB(255, 250, 224));
-        Text(hdc, rect.left + 12, rect.top + 8, label);
-        SetTextColor(hdc, text_dark);
     };
     auto SectionHeader = [&](RECT rect, const std::wstring& label) {
         Fill(hdc, rect, wood_mid);
@@ -1943,142 +2100,196 @@ void FarmWindow::DrawWorkshop(HDC hdc) {
         Text(hdc, rect.left + 18, rect.top + 7, label);
         SetTextColor(hdc, text_dark);
     };
+    auto ProductColor = [](ItemId item) -> COLORREF {
+        switch (item) {
+            case ItemId::Bread:
+                return RGB(211, 142, 58);
+            case ItemId::Cheese:
+                return RGB(238, 196, 72);
+            case ItemId::Jam:
+                return RGB(180, 55, 64);
+            case ItemId::Milk:
+                return RGB(238, 240, 226);
+            case ItemId::Tomato:
+                return RGB(202, 73, 55);
+            default:
+                return RGB(226, 196, 126);
+        }
+    };
+    auto WorkshopButton = [&](int id, RECT rect, const std::wstring& label, bool enabled) {
+        if (enabled) {
+            buttons_.push_back(UiButton{rect, id});
+        }
+        Fill(hdc, rect, enabled ? action_green : RGB(174, 158, 124));
+        Frame(rect, enabled ? RGB(45, 91, 24) : RGB(132, 119, 91));
+        SetTextColor(hdc, enabled ? RGB(255, 250, 224) : RGB(235, 228, 207));
+        Text(hdc, rect.left + 12, rect.top + 8, label);
+        SetTextColor(hdc, text_dark);
+    };
+    auto HasInputs = [&](const RecipeUi& recipe) {
+        const bool has_a = game_.Player().ItemCount(recipe.input_a) >= recipe.count_a;
+        const bool has_b = recipe.count_b <= 0 ||
+                           game_.Player().ItemCount(recipe.input_b) >= recipe.count_b;
+        return has_a && has_b;
+    };
 
     RECT title_bar{35, 130, 285, 168};
-    Fill(hdc, title_bar, RGB(255, 239, 198));
+    Fill(hdc, title_bar, panel_fill);
     Frame(title_bar, wood_dark);
-    Text(hdc, 55, 140, L"饲料坊");
+    Text(hdc, 55, 140, L"\u9972\u6599\u574a");
 
     std::wstringstream materials;
-    materials << L"小麦 " << game_.Player().ItemCount(ItemId::Wheat) << L"    玉米 "
-              << game_.Player().ItemCount(ItemId::Corn) << L"    胡萝卜 "
-              << game_.Player().ItemCount(ItemId::Carrot);
-    RECT material_bar{300, 130, 720, 168};
-    Fill(hdc, material_bar, RGB(255, 239, 198));
+    materials << L"\u5c0f\u9ea6 " << game_.Player().ItemCount(ItemId::Wheat)
+              << L"    \u7389\u7c73 " << game_.Player().ItemCount(ItemId::Corn)
+              << L"    \u80e1\u841d\u535c " << game_.Player().ItemCount(ItemId::Carrot)
+              << L"    \u756a\u8304 " << game_.Player().ItemCount(ItemId::Tomato)
+              << L"    \u725b\u5976 " << game_.Player().ItemCount(ItemId::Milk);
+    RECT material_bar{300, 130, 900, 168};
+    Fill(hdc, material_bar, panel_fill);
     Frame(material_bar, wood_dark);
     Text(hdc, 320, 140, materials.str());
 
-    RECT workbench{45, 315, 1075, 610};
+    std::wstringstream shelf_summary;
+    shelf_summary << L"\u6210\u54c1 " << view.shelf_count << L"/" << view.shelf_capacity;
+    RECT shelf_bar{915, 130, 1075, 168};
+    Fill(hdc, shelf_bar, panel_fill);
+    Frame(shelf_bar, wood_dark);
+    Text(hdc, 935, 140, shelf_summary.str());
+
+    RECT workbench{45, 300, 1075, 625};
     Fill(hdc, workbench, panel_fill);
     Frame(workbench, wood_dark);
-    RECT inner_frame{49, 319, 1071, 606};
-    Frame(inner_frame, RGB(194, 132, 67));
+    Frame(RECT{49, 304, 1071, 621}, RGB(194, 132, 67));
+    Frame(RECT{430, 312, 431, 610}, RGB(194, 132, 67));
+    Frame(RECT{745, 312, 746, 610}, RGB(194, 132, 67));
 
-    Frame(RECT{382, 328, 383, 593}, RGB(194, 132, 67));
-    Frame(RECT{728, 328, 729, 593}, RGB(194, 132, 67));
-
-    SectionHeader(RECT{65, 330, 360, 365}, L"配方");
-    SectionHeader(RECT{402, 330, 708, 365},
-                  L"加工队列  " + std::to_wstring(view.queue_count) + L"/" +
+    SectionHeader(RECT{65, 318, 410, 353}, L"\u914d\u65b9");
+    SectionHeader(RECT{455, 318, 725, 353},
+                  L"\u52a0\u5de5\u961f\u5217  " + std::to_wstring(view.queue_count) + L"/" +
                       std::to_wstring(view.queue_capacity));
-    SectionHeader(RECT{748, 330, 1055, 365},
-                  L"成品货架  " + std::to_wstring(view.shelf_count) + L"/" +
+    SectionHeader(RECT{765, 318, 1055, 353},
+                  L"\u6210\u54c1\u8d27\u67b6  " + std::to_wstring(view.shelf_count) + L"/" +
                       std::to_wstring(view.shelf_capacity));
 
-    RECT chicken_recipe{65, 380, 360, 462};
-    Fill(hdc, chicken_recipe, slot_fill);
-    Frame(chicken_recipe, RGB(180, 126, 69));
-    DrawTextureOrFill(hdc, L"item_wheat", RECT{78, 392, 118, 432}, RGB(226, 196, 126));
-    Text(hdc, 83, 435, L"x2");
-    Text(hdc, 127, 405, L"→");
-    DrawTextureOrFill(hdc, L"item_feed", RECT{150, 392, 190, 432}, RGB(226, 196, 126));
-    Text(hdc, 195, 394, L"鸡饲料");
-    Text(hdc, 195, 418, L"20 分钟");
-    WorkshopButton(kMakeChickenFeed, RECT{246, 385, 296, 423}, L"x1");
-    WorkshopButton(kMakeChickenFeed3, RECT{302, 385, 352, 423}, L"x3");
-
-    RECT cow_recipe{65, 478, 360, 575};
-    Fill(hdc, cow_recipe, slot_fill);
-    Frame(cow_recipe, RGB(180, 126, 69));
-    DrawTextureOrFill(hdc, L"item_corn", RECT{76, 490, 112, 526}, RGB(226, 196, 126));
-    Text(hdc, 80, 530, L"x2");
-    Text(hdc, 118, 501, L"+");
-    DrawTextureOrFill(hdc, L"item_carrot", RECT{137, 490, 173, 526}, RGB(226, 196, 126));
-    Text(hdc, 141, 530, L"x1");
-    Text(hdc, 179, 501, L"→");
-    DrawTextureOrFill(hdc, L"item_feed", RECT{198, 490, 234, 526}, RGB(226, 196, 126));
-    Text(hdc, 240, 490, L"牛饲料");
-    Text(hdc, 240, 514, L"32 分钟");
-    WorkshopButton(kMakeCowFeed, RECT{277, 532, 347, 568}, L"制作");
+    for (int i = 0; i < static_cast<int>(recipes.size()); ++i) {
+        const RecipeUi& recipe = recipes[static_cast<std::size_t>(i)];
+        const int y = 370 + i * 45;
+        RECT row{65, y, 410, y + 37};
+        Fill(hdc, row, card_fill);
+        Frame(row, RGB(180, 126, 69));
+        DrawTextureOrFill(hdc, ItemTextureKey(recipe.input_a), RECT{74, y + 4, 104, y + 34},
+                          ProductColor(recipe.input_a));
+        Text(hdc, 108, y + 8, L"x" + std::to_wstring(recipe.count_a));
+        int x = 142;
+        if (recipe.count_b > 0) {
+            Text(hdc, x, y + 8, L"+");
+            DrawTextureOrFill(hdc, ItemTextureKey(recipe.input_b), RECT{x + 20, y + 4, x + 50, y + 34},
+                              ProductColor(recipe.input_b));
+            Text(hdc, x + 54, y + 8, L"x" + std::to_wstring(recipe.count_b));
+            x += 92;
+        }
+        Text(hdc, x, y + 8, L"->");
+        const ItemId product = RecipeProduct(recipe.recipe);
+        DrawTextureOrFill(hdc, ItemTextureKey(product), RECT{x + 32, y + 4, x + 62, y + 34},
+                          ProductColor(product));
+        Text(hdc, x + 68, y + 1, RecipeName(recipe.recipe));
+        Text(hdc, x + 68, y + 19,
+             std::to_wstring(RecipeTicks(recipe.recipe) * kGameMinutesPerTick) + L" \u5206");
+        const bool can_make = view.queue_count < view.queue_capacity &&
+                              game_.Player().Level() >= recipe.min_level && HasInputs(recipe);
+        std::wstring button_label = game_.Player().Level() >= recipe.min_level
+                                        ? L"\u5236\u4f5c"
+                                        : L"Lv." + std::to_wstring(recipe.min_level);
+        WorkshopButton(recipe.button_id, RECT{345, y + 5, 400, y + 33}, button_label, can_make);
+    }
 
     for (int i = 0; i < kFeedMillQueueCapacity; ++i) {
-        const int x = 407 + i * 100;
-        RECT slot{x, 392, x + 86, 500};
-        Fill(hdc, slot, i < static_cast<int>(queue.size()) ? slot_fill : RGB(239, 217, 177));
+        const int x = 455 + i * 54;
+        RECT slot{x, 375, x + 46, 470};
+        Fill(hdc, slot, i < static_cast<int>(queue.size()) ? card_fill : muted_fill);
         Frame(slot, RGB(167, 116, 66));
-        std::wstring slot_number = std::to_wstring(i + 1);
-        Text(hdc, x + 38, 374, slot_number);
+        Text(hdc, x + 17, 356, std::to_wstring(i + 1));
         if (i >= static_cast<int>(queue.size())) {
-            SetTextColor(hdc, RGB(117, 91, 62));
-            Text(hdc, x + 27, 435, L"空闲");
+            SetTextColor(hdc, text_muted);
+            Text(hdc, x + 7, 414, L"\u7a7a");
             SetTextColor(hdc, text_dark);
             continue;
         }
 
         const ProductionJob& job = queue[static_cast<std::size_t>(i)];
-        DrawTextureOrFill(hdc, L"item_feed", RECT{x + 18, 405, x + 68, 455},
-                          RGB(226, 196, 126));
-        Text(hdc, x + 16, 462, job.recipe == RecipeId::ChickenFeed ? L"鸡饲料" : L"牛饲料");
+        const ItemId product = RecipeProduct(job.recipe);
+        DrawTextureOrFill(hdc, ItemTextureKey(product), RECT{x + 7, 392, x + 39, 424},
+                          ProductColor(product));
+        Text(hdc, x + 3, 430, RecipeName(job.recipe));
     }
 
     if (!queue.empty()) {
         const ProductionJob& active = queue.front();
-        const int total_ticks =
-            active.recipe == RecipeId::ChickenFeed ? kChickenFeedTicks : kCowFeedTicks;
+        const int total_ticks = RecipeTicks(active.recipe);
         const int completed = std::max(0, total_ticks - active.remaining_ticks);
-        RECT progress_back{407, 520, 693, 536};
+        RECT progress_back{455, 500, 725, 516};
         Fill(hdc, progress_back, RGB(117, 80, 45));
         RECT progress_fill = progress_back;
-        progress_fill.right =
-            progress_back.left + (progress_back.right - progress_back.left) * completed /
-                                     std::max(1, total_ticks);
+        progress_fill.right = progress_back.left +
+                              (progress_back.right - progress_back.left) * completed /
+                                  std::max(1, total_ticks);
         Fill(hdc, progress_fill, RGB(62, 166, 218));
         Frame(progress_back, wood_dark);
         std::wstringstream remaining;
-        remaining << L"当前任务剩余 " << active.remaining_ticks * kGameMinutesPerTick << L" 分钟";
-        Text(hdc, 407, 548, remaining.str());
+        remaining << L"\u6b63\u5728\u52a0\u5de5 " << RecipeName(active.recipe) << L"    "
+                  << active.remaining_ticks * kGameMinutesPerTick << L" \u5206";
+        Text(hdc, 455, 535, remaining.str());
     } else {
-        SetTextColor(hdc, RGB(117, 91, 62));
-        Text(hdc, 407, 535, L"队列空闲，可选择左侧配方开始加工");
+        SetTextColor(hdc, text_muted);
+        Text(hdc, 455, 512, L"\u961f\u5217\u7a7a\u95f2\uff0c\u4ece\u5de6\u4fa7\u9009\u62e9\u914d\u65b9\u5f00\u59cb\u52a0\u5de5");
         SetTextColor(hdc, text_dark);
     }
 
     std::vector<ItemId> shelf_items;
-    shelf_items.insert(shelf_items.end(), static_cast<std::size_t>(view.chicken_feed_shelf),
-                       ItemId::ChickenFeed);
-    shelf_items.insert(shelf_items.end(), static_cast<std::size_t>(view.cow_feed_shelf),
-                       ItemId::CowFeed);
+    auto AppendShelf = [&](ItemId item, int count) {
+        shelf_items.insert(shelf_items.end(), static_cast<std::size_t>(std::max(0, count)), item);
+    };
+    AppendShelf(ItemId::ChickenFeed, view.chicken_feed_shelf);
+    AppendShelf(ItemId::CowFeed, view.cow_feed_shelf);
+    AppendShelf(ItemId::Bread, view.bread_shelf);
+    AppendShelf(ItemId::Cheese, view.cheese_shelf);
+    AppendShelf(ItemId::Jam, view.jam_shelf);
+
     for (int i = 0; i < kFeedMillShelfCapacity; ++i) {
-        const int x = 755 + i * 72;
-        RECT slot{x, 392, x + 62, 480};
+        const int col = i % 4;
+        const int row = i / 4;
+        const int x = 770 + col * 70;
+        const int y = 375 + row * 82;
+        RECT slot{x, y, x + 58, y + 72};
         Fill(hdc, slot, RGB(151, 99, 48));
         Frame(slot, wood_dark);
         if (i < static_cast<int>(shelf_items.size())) {
-            DrawTextureOrFill(hdc, L"item_feed", RECT{x + 9, 402, x + 53, 446},
-                              RGB(226, 196, 126));
-            Text(hdc, x + 10, 451,
-                 shelf_items[static_cast<std::size_t>(i)] == ItemId::ChickenFeed ? L"鸡料"
-                                                                                 : L"牛料");
+            const ItemId item = shelf_items[static_cast<std::size_t>(i)];
+            DrawTextureOrFill(hdc, ItemTextureKey(item), RECT{x + 8, y + 7, x + 50, y + 49},
+                              ProductColor(item));
+            SetTextColor(hdc, RGB(255, 232, 182));
+            Text(hdc, x + 7, y + 50, ItemName(item));
+            SetTextColor(hdc, text_dark);
         } else {
             SetTextColor(hdc, RGB(224, 188, 138));
-            Text(hdc, x + 23, 425, L"空");
+            Text(hdc, x + 18, y + 25, L"\u7a7a");
             SetTextColor(hdc, text_dark);
         }
     }
 
-    WorkshopButton(kClaimFeed, RECT{815, 505, 995, 548}, L"领取 1 个");
+    WorkshopButton(kClaimFeed, RECT{805, 555, 995, 592}, L"\u9886\u53d6 1 \u4e2a", view.shelf_count > 0);
     if (view.shelf_count >= view.shelf_capacity) {
         SetTextColor(hdc, RGB(157, 63, 38));
-        Text(hdc, 790, 565, L"货架已满，生产暂停");
+        Text(hdc, 785, 600, L"\u8d27\u67b6\u5df2\u6ee1\uff0c\u8bf7\u5148\u9886\u53d6\u6210\u54c1");
     } else if (view.shelf_count == 0) {
-        SetTextColor(hdc, RGB(117, 91, 62));
-        Text(hdc, 815, 565, L"暂无可领取成品");
+        SetTextColor(hdc, text_muted);
+        Text(hdc, 815, 600, L"\u6682\u65e0\u53ef\u9886\u53d6\u6210\u54c1");
     } else {
-        Text(hdc, 815, 565, L"领取后存入仓库");
+        SetTextColor(hdc, text_muted);
+        Text(hdc, 800, 600, L"\u9886\u53d6\u540e\u5b58\u5165\u4ed3\u5e93");
     }
     SetTextColor(hdc, text_dark);
 }
-
 void FarmWindow::DrawOrders(HDC hdc) {
     const auto& orders = game_.Orders().Orders();
     const COLORREF panel_fill = RGB(255, 239, 198);
@@ -3570,6 +3781,15 @@ void FarmWindow::OnButton(int id) {
                                                    game_.Player().Level());
     } else if (id == kMakeCowFeed) {
         result = game_.Workshop().StartProduction(game_.Player(), RecipeId::CowFeed, 1,
+                                                   game_.Player().Level());
+    } else if (id == kMakeBread) {
+        result = game_.Workshop().StartProduction(game_.Player(), RecipeId::Bread, 1,
+                                                   game_.Player().Level());
+    } else if (id == kMakeCheese) {
+        result = game_.Workshop().StartProduction(game_.Player(), RecipeId::Cheese, 1,
+                                                   game_.Player().Level());
+    } else if (id == kMakeJam) {
+        result = game_.Workshop().StartProduction(game_.Player(), RecipeId::Jam, 1,
                                                    game_.Player().Level());
     } else if (id == kClaimFeed) {
         result = game_.Workshop().ClaimProduct(game_.Player());

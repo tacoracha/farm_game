@@ -1,5 +1,9 @@
 # ZGM 前端 UI 优化说明
 
+补充文档：
+
+- [ZGM 前端分步接入记录](zgm_ui_steps_readme.md)
+
 ## 1. 文档范围
 
 本文件记录 `codex/zgm-ranch` 分支中由 zgm 负责的本轮前端界面优化。
