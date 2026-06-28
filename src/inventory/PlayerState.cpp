@@ -212,7 +212,7 @@ Result<void> PlayerState::UnlockContent(UnlockId id) {
             default: break;
         }
     }
-    if (ach_) ach_->OnUnlockContent();
+    if (ach_) ach_->OnUnlockContent(id);
     return Result<void>::success();
 }
 

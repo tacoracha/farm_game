@@ -298,6 +298,13 @@ void RanchSystem::Tick(int current_tick, float weather_multiplier) {
 
             if (animal.state == AnimalState::Producing) {
                 int effective_tick = animal.finish_tick;
+                if (weather_multiplier > 1.01f) {
+                    const int period = std::max(2, static_cast<int>(1.0f / (weather_multiplier - 1.0f)));
+                    if (current_tick % period == 0) --effective_tick;
+                } else if (weather_multiplier < 0.99f) {
+                    const int period = std::max(2, static_cast<int>(1.0f / (1.0f - weather_multiplier)));
+                    if (current_tick % period == 0) ++effective_tick;
+                }
                 if (animal.mood >= kMoodHighThreshold) {
                     if (current_tick % 5 == 0) --effective_tick;
                 } else if (animal.mood < kMoodLowThreshold) {
@@ -308,9 +315,6 @@ void RanchSystem::Tick(int current_tick, float weather_multiplier) {
                 } else {
                     animal.finish_tick = effective_tick;
                 }
-            } else if (animal.state == AnimalState::Producing &&
-                       current_tick >= animal.finish_tick) {
-                animal.state = AnimalState::Ready;
             }
         }
 

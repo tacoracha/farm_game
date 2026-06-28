@@ -101,7 +101,7 @@ public:
     void OnProcessItem();
     void OnCompleteOrder();
     void OnPlayerLevelUp(int level);
-    void OnUnlockContent();
+    void OnUnlockContent(UnlockId id);
     void OnSeasonChange(Season season);
     void OnAddGold(int gold);
 
@@ -176,8 +176,6 @@ private:
     int process_recipes_known_ = 0;
     int seeds_unlocked_ = 0;
     int buildings_unlocked_ = 0;
-    bool initial_unlock_skipped_ = false;
-
     bool has_new_ = false;
     bool initialized_ = false;
 

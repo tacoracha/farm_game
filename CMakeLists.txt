@@ -45,6 +45,12 @@ if(MSVC)
     target_compile_options(farm_game PRIVATE /utf-8)
 endif()
 
+if(APPLE)
+    enable_language(OBJCXX)
+    target_sources(farm_game PRIVATE src/ui/MacFarmApp.mm)
+    target_link_libraries(farm_game PRIVATE "-framework Cocoa")
+endif()
+
 if(WIN32)
     set_target_properties(farm_game PROPERTIES WIN32_EXECUTABLE TRUE)
     target_compile_definitions(farm_game PRIVATE UNICODE _UNICODE NOMINMAX)

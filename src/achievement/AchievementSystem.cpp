@@ -52,6 +52,25 @@ constexpr AchievementDef kAchievementDefs[] = {
 
 constexpr int kAchievementCount = static_cast<int>(AchievementID::COUNT);
 
+bool IsSeedUnlock(UnlockId id) {
+    return id == UnlockId::CornSeed || id == UnlockId::CarrotSeed ||
+           id == UnlockId::TomatoSeed || id == UnlockId::StrawberrySeed ||
+           id == UnlockId::PumpkinSeed || id == UnlockId::MushroomSeed;
+}
+
+bool IsBuildingUnlock(UnlockId id) {
+    return id == UnlockId::ExtraLand || id == UnlockId::GreenhouseTech ||
+           id == UnlockId::CowBarn || id == UnlockId::SheepPen;
+}
+
+int RecipeCountForLevel(int level) {
+    int count = 2;  // Chicken feed and cow feed are available at level 1.
+    if (level >= 2) ++count;
+    if (level >= 3) ++count;
+    if (level >= 4) ++count;
+    return count;
+}
+
 }  // namespace
 
 const char* CategoryName(AchievementCategory cat) {
@@ -96,6 +115,9 @@ void AchievementSystem::Init() {
         a.reward_text = def.reward_text;
         achievements_.push_back(a);
     }
+    seeds_unlocked_ = 1;
+    buildings_unlocked_ = 0;
+    process_recipes_known_ = RecipeCountForLevel(1);
 }
 
 void AchievementSystem::CheckAndAward(Achievement& a) {
@@ -197,6 +219,7 @@ void AchievementSystem::OnCompleteOrder() {
 
 void AchievementSystem::OnPlayerLevelUp(int level) {
     if (!initialized_) return;
+    process_recipes_known_ = RecipeCountForLevel(level);
     for (Achievement& a : achievements_) {
         switch (a.id) {
             case AchievementID::Level10:
@@ -205,24 +228,38 @@ void AchievementSystem::OnPlayerLevelUp(int level) {
             case AchievementID::Level20:
                 a.current = level;
                 break;
+            case AchievementID::AllRecipes:
+                a.current = process_recipes_known_;
+                break;
             default: break;
         }
         CheckAndAward(a);
     }
 }
 
-void AchievementSystem::OnUnlockContent() {
+void AchievementSystem::OnUnlockContent(UnlockId id) {
     if (!initialized_) return;
-    if (!initial_unlock_skipped_) {
-        initial_unlock_skipped_ = true;
-        return;  // Skip the initial auto-unlocks at game start
-    }
     ++unlock_count_;
+    if (IsSeedUnlock(id)) {
+        ++seeds_unlocked_;
+    } else if (IsBuildingUnlock(id)) {
+        ++buildings_unlocked_;
+    }
     for (Achievement& a : achievements_) {
-        if (a.id == AchievementID::FirstUnlock) {
-            a.current = unlock_count_;
-            CheckAndAward(a);
+        switch (a.id) {
+            case AchievementID::FirstUnlock:
+                a.current = unlock_count_;
+                break;
+            case AchievementID::AllSeeds:
+                a.current = seeds_unlocked_;
+                break;
+            case AchievementID::AllBuildings:
+                a.current = buildings_unlocked_;
+                break;
+            default:
+                break;
         }
+        CheckAndAward(a);
     }
 }
 
@@ -310,6 +347,9 @@ void AchievementSystem::ClearForLoad() {
     total_orders_ = 0;
     total_gold_earned_ = 0;
     unlock_count_ = 0;
+    process_recipes_known_ = RecipeCountForLevel(1);
+    seeds_unlocked_ = 1;
+    buildings_unlocked_ = 0;
     season_harvest_count_ = 0;
     daily_order_count_ = 0;
     harvested_crops_.clear();

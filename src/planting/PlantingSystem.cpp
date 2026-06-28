@@ -125,6 +125,7 @@ Result<void> PlantingSystem::WaterPlot(int plot_id, int current_tick) {
     int boost = summer_drought_ ? kWaterGrowthBoostTicks * 2 : kWaterGrowthBoostTicks;
     plot.mature_tick = std::max(current_tick, plot.mature_tick - boost);
     UpdateMaturity(current_tick);
+    if (dts_) dts_->OnWaterCrop(1);
     return Result<void>::success();
 }
 
@@ -150,6 +151,7 @@ Result<void> PlantingSystem::ApplyFertilizer(PlayerState& player, int plot_id, i
     const int remaining = std::max(1, plot.mature_tick - current_tick);
     plot.mature_tick = current_tick + std::max(1, (remaining + 1) / 2);
     plot.fertilized = true;
+    if (dts_) dts_->OnFertilizeCrop(1);
     return Result<void>::success();
 }
 
@@ -336,6 +338,7 @@ Result<void> PlantingSystem::WaterGreenhousePlot(int plot_id, int current_tick) 
     if (plot.water == PlotWaterState::Watered) return Result<void>::failure(ErrorCode::PlotAlreadyWatered);
     plot.water = PlotWaterState::Watered;
     plot.mature_tick = std::max(current_tick, plot.mature_tick - kWaterGrowthBoostTicks);
+    if (dts_) dts_->OnWaterCrop(1);
     return Result<void>::success();
 }
 Result<void> PlantingSystem::HarvestGreenhouse(PlayerState& player, int plot_id) {

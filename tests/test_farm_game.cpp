@@ -8,6 +8,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -51,6 +52,26 @@ void TestInventoryAndEconomy() {
     EXPECT(player.Gold() > gold);
     EXPECT(player.TrySpendGold(player.Gold()).ok());
     EXPECT_EQ(player.TrySpendGold(1).code, farm::ErrorCode::InsufficientGold);
+}
+
+void TestItemCatalogCoversAllItems() {
+    const auto items = farm::AllItems();
+    EXPECT_EQ(static_cast<int>(items.size()), static_cast<int>(farm::ItemId::Mushroom) + 1);
+    for (int id = 0; id <= static_cast<int>(farm::ItemId::Mushroom); ++id) {
+        const auto item = static_cast<farm::ItemId>(id);
+        bool found = false;
+        for (farm::ItemId listed : items) {
+            if (listed == item) {
+                found = true;
+                break;
+            }
+        }
+        EXPECT(found);
+        EXPECT(farm::ToString(item)[0] != '\0');
+    }
+    EXPECT_EQ(farm::GetItemInfo(farm::ItemId::Bread).category, farm::ItemCategory::ProcessedGood);
+    EXPECT(farm::GetItemInfo(farm::ItemId::Cheese).sell_price > 0);
+    EXPECT_EQ(farm::CropFromSeed(farm::ItemId::PumpkinSeed), farm::ItemId::Pumpkin);
 }
 
 void TestShopNoChangeOnFailure() {
@@ -153,6 +174,8 @@ void TestSaveRoundTripAndErrors() {
     std::remove(path.c_str());
     farm::Game game;
     EXPECT(game.Player().TryAddItem(farm::ItemId::Wheat, 3).ok());
+    EXPECT(game.Player().TryAddItem(farm::ItemId::Bread, 1).ok());
+    EXPECT(game.Player().TryAddItem(farm::ItemId::Pumpkin, 2).ok());
     game.Player().AddExperience(farm::kExpPerLevel);
     EXPECT(game.Player().UnlockContent(farm::UnlockId::CornSeed).ok());
     EXPECT(game.Player().TryAddItem(farm::ItemId::CornSeed, 1).ok());
@@ -166,6 +189,8 @@ void TestSaveRoundTripAndErrors() {
     EXPECT_EQ(loaded.Time().CurrentTick(), game.Time().CurrentTick());
     EXPECT_EQ(loaded.Player().ItemCount(farm::ItemId::Wheat),
               game.Player().ItemCount(farm::ItemId::Wheat));
+    EXPECT_EQ(loaded.Player().ItemCount(farm::ItemId::Bread), 1);
+    EXPECT_EQ(loaded.Player().ItemCount(farm::ItemId::Pumpkin), 2);
     EXPECT_EQ(loaded.Planting().Plots()[0].crop, farm::ItemId::Corn);
 
     farm::Game before;
@@ -190,6 +215,27 @@ void TestSaveRoundTripAndErrors() {
     std::remove(path.c_str());
     std::remove(broken.c_str());
     std::remove(wrong_version.c_str());
+}
+
+void TestDailyTaskWaterAndFertilizeProgress() {
+    farm::Game game;
+    std::vector<farm::DailyTask> tasks = {
+        {farm::DailyTaskID::Water5Crop, farm::DailyTaskType::WaterCrop, "water", "water",
+         1, 0, false, 0, 0, ""},
+        {farm::DailyTaskID::Fertilize3Crop, farm::DailyTaskType::FertilizeCrop, "fertilize",
+         "fertilize", 1, 0, false, 0, 0, ""},
+    };
+    game.DailyTasks().SetForLoad(1, tasks);
+    EXPECT(game.Planting().TryPlantAt(game.Player(), 0, farm::ItemId::WheatSeed,
+                                      game.Time().CurrentTick(), farm::Season::Spring).ok());
+    EXPECT(game.Planting().WaterPlot(0, game.Time().CurrentTick()).ok());
+    EXPECT(game.Planting().ApplyFertilizer(game.Player(), 0, game.Time().CurrentTick()).ok());
+    game.DailyTasks().Tick(game.Time().CurrentTick(), game.Player());
+
+    const auto& today = game.DailyTasks().TodayTasks();
+    EXPECT_EQ(static_cast<int>(today.size()), 2);
+    EXPECT(today[0].completed);
+    EXPECT(today[1].completed);
 }
 
 void TestRandomEventAndOfflineProgress() {
@@ -336,6 +382,7 @@ void TestFishingEconomy() {
 
 int main() {
     TestInventoryAndEconomy();
+    TestItemCatalogCoversAllItems();
     TestShopNoChangeOnFailure();
     TestPlanting();
     TestHarvestWarehouseFullKeepsCrop();
@@ -343,6 +390,7 @@ int main() {
     TestOrderCooldownAndReward();
     TestTimeWeatherPause();
     TestSaveRoundTripAndErrors();
+    TestDailyTaskWaterAndFertilizeProgress();
     TestRandomEventAndOfflineProgress();
     TestUnlockDagLandAndAdvancedAnimals();
     TestFullLoop();

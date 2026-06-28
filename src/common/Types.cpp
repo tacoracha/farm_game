@@ -7,21 +7,36 @@
 namespace farm {
 namespace {
 
-constexpr std::array<ItemInfo, 14> kItems{{
+constexpr std::array<ItemInfo, 23> kItems{{
     {ItemId::WheatSeed, "Wheat Seed", ItemCategory::Seed, 3, 0, ItemId::Wheat, kWheatGrowTicks},
     {ItemId::CornSeed, "Corn Seed", ItemCategory::Seed, 5, 0, ItemId::Corn, kCornGrowTicks},
     {ItemId::CarrotSeed, "Carrot Seed", ItemCategory::Seed, 4, 0, ItemId::Carrot, kCarrotGrowTicks},
     {ItemId::TomatoSeed, "Tomato Seed", ItemCategory::Seed, 7, 0, ItemId::Tomato, kTomatoGrowTicks},
+    {ItemId::StrawberrySeed, "Strawberry Seed", ItemCategory::Seed, kStrawberrySeedBuyPrice, 0,
+     ItemId::Strawberry, kStrawberryGrowTicks},
+    {ItemId::PumpkinSeed, "Pumpkin Seed", ItemCategory::Seed, kPumpkinSeedBuyPrice, 0,
+     ItemId::Pumpkin, kPumpkinGrowTicks},
+    {ItemId::MushroomSeed, "Mushroom Spore", ItemCategory::Seed, kMushroomSeedBuyPrice, 0,
+     ItemId::Mushroom, kMushroomGrowTicks},
     {ItemId::Wheat, "Wheat", ItemCategory::Crop, 0, 5, ItemId::Wheat, kWheatGrowTicks},
     {ItemId::Corn, "Corn", ItemCategory::Crop, 0, 8, ItemId::Corn, kCornGrowTicks},
     {ItemId::Carrot, "Carrot", ItemCategory::Crop, 0, 7, ItemId::Carrot, kCarrotGrowTicks},
     {ItemId::Tomato, "Tomato", ItemCategory::Crop, 0, 12, ItemId::Tomato, kTomatoGrowTicks},
+    {ItemId::Strawberry, "Strawberry", ItemCategory::Crop, 0, kStrawberrySellPrice, ItemId::Strawberry,
+     kStrawberryGrowTicks},
+    {ItemId::Pumpkin, "Pumpkin", ItemCategory::Crop, 0, kPumpkinSellPrice, ItemId::Pumpkin,
+     kPumpkinGrowTicks},
+    {ItemId::Mushroom, "Mushroom", ItemCategory::Crop, 0, kMushroomSellPrice, ItemId::Mushroom,
+     kMushroomGrowTicks},
     {ItemId::ChickenFeed, "Chicken Feed", ItemCategory::Feed, 0, 4, ItemId::Wheat, 0},
     {ItemId::CowFeed, "Cow Feed", ItemCategory::Feed, 0, 7, ItemId::Corn, 0},
     {ItemId::Egg, "Egg", ItemCategory::AnimalProduct, 0, 12, ItemId::Wheat, 0},
     {ItemId::Milk, "Milk", ItemCategory::AnimalProduct, 0, 22, ItemId::Wheat, 0},
     {ItemId::Wool, "Wool", ItemCategory::AnimalProduct, 0, 28, ItemId::Wheat, 0},
     {ItemId::Fertilizer, "Fertilizer", ItemCategory::Consumable, kFertilizerCost, 0, ItemId::Wheat, 0},
+    {ItemId::Bread, "Bread", ItemCategory::ProcessedGood, 0, 18, ItemId::Wheat, 0},
+    {ItemId::Cheese, "Cheese", ItemCategory::ProcessedGood, 0, 34, ItemId::Wheat, 0},
+    {ItemId::Jam, "Jam", ItemCategory::ProcessedGood, 0, 36, ItemId::Wheat, 0},
 }};
 
 }  // namespace
@@ -49,6 +64,8 @@ const char* ToString(ItemCategory category) {
             return "Animal Product";
         case ItemCategory::Consumable:
             return "Consumable";
+        case ItemCategory::ProcessedGood:
+            return "Processed Good";
     }
     return "Unknown";
 }
