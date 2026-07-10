@@ -8,6 +8,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace {
@@ -35,6 +36,31 @@ void FillWarehouse(farm::PlayerState& player) {
             break;
         }
     }
+}
+
+void TestRanchInheritanceHierarchy() {
+    static_assert(std::is_abstract_v<farm::FarmEntity>);
+    static_assert(std::is_abstract_v<farm::RanchEntity>);
+    static_assert(std::is_base_of_v<farm::FarmEntity, farm::RanchEntity>);
+    static_assert(std::is_base_of_v<farm::RanchEntity, farm::AnimalData>);
+    static_assert(std::is_base_of_v<farm::RanchEntity, farm::RanchFacilityData>);
+
+    farm::AnimalData animal;
+    animal.id = 7;
+    animal.state = farm::AnimalState::Ready;
+
+    const farm::FarmEntity& entity = animal;
+    EXPECT_EQ(entity.Domain(), farm::EntityDomain::Ranch);
+
+    const farm::RanchEntity& ranch_animal = animal;
+    EXPECT_EQ(ranch_animal.RanchType(), farm::RanchEntityType::Animal);
+    EXPECT(ranch_animal.HasReadyOutput());
+
+    farm::RanchFacilityData facility;
+    facility.animals.push_back(animal);
+    const farm::RanchEntity& ranch_facility = facility;
+    EXPECT_EQ(ranch_facility.RanchType(), farm::RanchEntityType::Facility);
+    EXPECT(ranch_facility.HasReadyOutput());
 }
 
 void TestInventoryAndEconomy() {
@@ -381,6 +407,7 @@ void TestFishingEconomy() {
 }  // namespace
 
 int main() {
+    TestRanchInheritanceHierarchy();
     TestInventoryAndEconomy();
     TestItemCatalogCoversAllItems();
     TestShopNoChangeOnFailure();

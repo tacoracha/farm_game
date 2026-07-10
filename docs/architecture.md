@@ -14,6 +14,20 @@ Player State：`PlayerState` 统一金币、经验、仓库、物品锁和种子
 
 Persistence：`SaveManager` 聚合所有模块状态，业务模块不直接读写文件。
 
+## 核心继承层级
+
+养殖领域使用两层继承，并通过虚函数提供实体分类和产物就绪判断：
+
+```text
+FarmEntity（农场实体抽象基类）
+  -> RanchEntity（养殖实体抽象基类）
+      -> AnimalData（动物数据）
+      -> RanchFacilityData（养殖设施数据）
+```
+
+`AnimalData` 和 `RanchFacilityData` 分别重写 `RanchType` 与 `HasReadyOutput`。
+原有公开字段、业务接口和存档字段保持不变，因此 UI 不需要感知继承结构。
+
 ## Tick 顺序
 
 `Game::AdvanceTicks` 每 tick 按固定顺序执行：

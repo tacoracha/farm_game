@@ -251,7 +251,7 @@ int RanchSystem::ReadyProductCount() const {
     int count = 0;
     for (const RanchFacilityData& facility : facilities_) {
         for (const AnimalData& animal : facility.animals) {
-            if (animal.state == AnimalState::Ready) ++count;
+            if (animal.HasReadyOutput()) ++count;
         }
     }
     return count;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "farm/common/Types.h"
+#include "farm/core/FarmEntity.h"
 
 #include <vector>
 
@@ -10,8 +11,10 @@ class PlayerState;
 class AchievementSystem;
 class DailyTaskSystem;
 
-struct AnimalData {
-    int id = 0;
+struct AnimalData final : public RanchEntity {
+    RanchEntityType RanchType() const noexcept override { return RanchEntityType::Animal; }
+    bool HasReadyOutput() const noexcept override { return state == AnimalState::Ready; }
+
     AnimalKind kind = AnimalKind::Chicken;
     AnimalQuality quality = AnimalQuality::Common;
     AnimalState state = AnimalState::Idle;
@@ -22,8 +25,17 @@ struct AnimalData {
     bool is_baby = false;    // juvenile, not producing yet
 };
 
-struct RanchFacilityData {
-    int id = 1;
+struct RanchFacilityData final : public RanchEntity {
+    RanchFacilityData() { id = 1; }
+
+    RanchEntityType RanchType() const noexcept override { return RanchEntityType::Facility; }
+    bool HasReadyOutput() const noexcept override {
+        for (const AnimalData& animal : animals) {
+            if (animal.HasReadyOutput()) return true;
+        }
+        return false;
+    }
+
     RanchFacilityKind kind = RanchFacilityKind::ChickenCoop;
     int level = 1;
     int capacity = 0;
